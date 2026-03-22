@@ -1,0 +1,106 @@
+# Istio service mesh RBAC configuration.
+# istio-pilot: control plane SA with read access to endpoints/services/pods.
+# istio-ingressgateway: data plane SA with secrets read for TLS certificates.
+# Key finding: ingressgateway → k8s:secret:* = HIGH sensitivity (TLS private keys)
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: istio-pilot
+  namespace: istio-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: istio-ingressgateway
+  namespace: istio-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: istio-citadel
+  namespace: istio-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: istio-pilot-role
+rules:
+- apiGroups: [""]
+  resources: ["endpoints", "services", "pods", "nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.istio.io"]
+  resources: ["virtualservices", "destinationrules", "serviceentries", "gateways"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions", "apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: istio-ingressgateway-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.istio.io"]
+  resources: ["virtualservices", "gateways"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: istio-citadel-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+- apiGroups: [""]
+  resources: ["serviceaccounts"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["serviceaccounts/token"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: istio-pilot-binding
+subjects:
+- kind: ServiceAccount
+  name: istio-pilot
+  namespace: istio-system
+roleRef:
+  kind: ClusterRole
+  name: istio-pilot-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: istio-ingressgateway-binding
+subjects:
+- kind: ServiceAccount
+  name: istio-ingressgateway
+  namespace: istio-system
+roleRef:
+  kind: ClusterRole
+  name: istio-ingressgateway-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: istio-citadel-binding
+subjects:
+- kind: ServiceAccount
+  name: istio-citadel
+  namespace: istio-system
+roleRef:
+  kind: ClusterRole
+  name: istio-citadel-role
+  apiGroup: rbac.authorization.k8s.io

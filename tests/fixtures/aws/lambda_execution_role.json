@@ -1,0 +1,88 @@
+{
+    "_comment": "Realistic Lambda execution role config. Source: hand-crafted from AWS documentation patterns (https://docs.aws.amazon.com/lambda/latest/dg/lambda-intro-execution-role.html)",
+    "RoleName": "my-lambda-execution-role",
+    "RoleArn": "arn:aws:iam::123456789012:role/my-lambda-execution-role",
+    "TrustPolicy": {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": "lambda.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+            }
+        ]
+    },
+    "PermissionPolicies": [
+        {
+            "PolicyName": "AWSLambdaBasicExecutionRole",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:CreateLogGroup",
+                            "logs:CreateLogStream",
+                            "logs:PutLogEvents"
+                        ],
+                        "Resource": "*"
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "S3ReadAccess",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "s3:GetObject",
+                            "s3:ListBucket"
+                        ],
+                        "Resource": [
+                            "arn:aws:s3:::my-data-bucket",
+                            "arn:aws:s3:::my-data-bucket/*"
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "SecretsManagerReadAccess",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "secretsmanager:GetSecretValue"
+                        ],
+                        "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-credentials-*",
+                        "Condition": {
+                            "StringEquals": {
+                                "aws:RequestedRegion": "us-east-1"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "CrossAccountRoleAssumption",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": "sts:AssumeRole",
+                        "Resource": "arn:aws:iam::999888777666:role/cross-account-read-role"
+                    }
+                ]
+            }
+        }
+    ]
+}

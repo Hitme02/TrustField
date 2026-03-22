@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrustField — Security Operations Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Top bar ─────────────────────────────────────────────────────────── -->
+  <header id="topbar">
+    <div id="logo">TRUSTFIELD</div>
+    <nav id="topo-tabs"></nav>
+    <div id="topbar-right">
+      <div id="status-bar">
+        <span id="status-text" style="font-family:var(--mono);font-size:11px;color:var(--dim)">● READY</span>
+      </div>
+      <button id="run-btn">RUN</button>
+      <div id="live-indicator">
+        <div id="live-dot"></div>
+        LIVE
+      </div>
+      <div id="clock">00:00</div>
+    </div>
+  </header>
+
+  <!-- ── 3D Graph ────────────────────────────────────────────────────────── -->
+  <main id="graph-area">
+    <canvas id="graph-canvas"></canvas>
+    <div id="graph-overlay"></div>
+    <div id="node-tooltip"></div>
+  </main>
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside id="sidebar">
+
+    <div class="sidebar-section">
+      <div class="section-label">Exploitability Gap · M4</div>
+      <div id="metrics-grid">
+        <div class="metric-cell">
+          <div class="metric-value mono" id="m-pbr" data-current="0">0</div>
+          <div class="metric-label">PBR</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-value mono" id="m-vbr" data-current="0">0</div>
+          <div class="metric-label">VBR</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-value mono" id="m-gap" data-current="0">0</div>
+          <div class="metric-label">Gap</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-value mono" id="m-egd" data-current="0" style="font-size:22px;padding-top:4px">0.000</div>
+          <div class="metric-label">EGD Score</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-label">Node States</div>
+      <div id="state-list">
+        <div class="dim" style="font-size:11px;font-family:var(--mono)">Loading…</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section" style="flex:1;overflow-y:auto">
+      <div class="section-label">Node Inspector</div>
+      <div id="inspector">
+        <div id="inspector-placeholder">Click a node to inspect</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Attack Timeline ─────────────────────────────────────────────────── -->
+  <div id="timeline-bar">
+    <div id="timeline-label">Attack Path</div>
+    <div id="timeline-track"></div>
+    <div id="timeline-empty" style="display:none">No attack path data</div>
+    <div id="tl-lockdown" style="display:none">
+      <div id="tl-lockdown-line"></div>
+      <div id="tl-lockdown-label">LOCKDOWN</div>
+    </div>
+  </div>
+
+  <!-- ── Guard Terminal ──────────────────────────────────────────────────── -->
+  <div id="terminal-bar">
+    <div id="terminal-header">
+      <div id="terminal-title">Guard Event Log · M5</div>
+      <button id="terminal-toggle">[hide]</button>
+    </div>
+    <div id="terminal-log">
+      <div id="terminal-empty">// Awaiting guard events…</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/components/metrics.js"></script>
+<script src="/static/components/inspector.js"></script>
+<script src="/static/components/timeline.js"></script>
+<script src="/static/components/terminal.js"></script>
+<script src="/static/components/graph3d.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

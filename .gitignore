@@ -1,0 +1,88 @@
+# ── Virtual environment ──────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Python bytecode ──────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# ── Claude Code project context ───────────────────────────────────────
+.claude/
+
+# ── Distribution / packaging ─────────────────────────────────────────
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+MANIFEST
+pip-wheel-metadata/
+*.whl
+
+# ── Test / coverage artefacts ────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.coveragerc
+nosetests.xml
+test-results/
+
+# ── Type checker caches ───────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+.pyright/
+.ruff_cache/
+
+# ── Generated pipeline output ─────────────────────────────────────────
+out/
+output/
+
+# ── Generated / stale artefacts in repo root ─────────────────────────
+verification_results.csv
+*.tex
+
+# ── Database files (adaptive weight tracker) ─────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── macOS noise ───────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# ── Editor / IDE ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+*.sublime-project
+*.sublime-workspace
+
+# ── Jupyter notebooks (scratch only — commit intentional ones) ────────
+.ipynb_checkpoints/
+
+# ── Environment / secrets ─────────────────────────────────────────────
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+
+# ── Logs ──────────────────────────────────────────────────────────────
+*.log
+logs/

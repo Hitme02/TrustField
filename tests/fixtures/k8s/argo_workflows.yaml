@@ -1,0 +1,101 @@
+# Argo Workflows RBAC with common misconfiguration.
+# argo-workflow-sa: workflow engine SA with pods/exec + secrets access.
+# MISCONFIGURATION: ClusterRoleBinding grants argo-workflow-sa cluster-admin.
+# This is the most common real-world Kubernetes privilege escalation path:
+# a workflow SA with cluster-admin can create privileged pods, read all secrets,
+# and modify RBAC — effectively root access on the cluster.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argo-workflow-sa
+  namespace: argo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argo-server-sa
+  namespace: argo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-role
+  namespace: argo
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "watch", "patch", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create", "get"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+- apiGroups: ["argoproj.io"]
+  resources: ["workflows", "workflowtemplates", "cronworkflows", "workflownodestatus"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-server-role
+  namespace: argo
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/exec"]
+  verbs: ["get", "watch", "list", "create", "delete"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+- apiGroups: ["argoproj.io"]
+  resources: ["workflows", "workflowtemplates"]
+  verbs: ["get", "list", "watch", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-role-binding
+  namespace: argo
+subjects:
+- kind: ServiceAccount
+  name: argo-workflow-sa
+  namespace: argo
+roleRef:
+  kind: Role
+  name: argo-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-server-binding
+  namespace: argo
+subjects:
+- kind: ServiceAccount
+  name: argo-server-sa
+  namespace: argo
+roleRef:
+  kind: Role
+  name: argo-server-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# MISCONFIGURATION: grants argo-workflow-sa full cluster-admin privileges.
+# A workflow pod running under this SA can escalate to full cluster control.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argo-cluster-admin
+  annotations:
+    note: "SECURITY MISCONFIGURATION — remove in production"
+subjects:
+- kind: ServiceAccount
+  name: argo-workflow-sa
+  namespace: argo
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io

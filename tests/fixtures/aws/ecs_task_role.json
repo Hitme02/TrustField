@@ -1,0 +1,103 @@
+{
+    "_comment": "Realistic ECS task execution role. Principal: ecs-tasks.amazonaws.com. Contains ECR pull + secretsmanager read for prod/* — creates ECR→secret lateral movement path.",
+    "RoleName": "ecs-task-execution-role",
+    "RoleArn": "arn:aws:iam::123456789012:role/ecs-task-execution-role",
+    "TrustPolicy": {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": "ecs-tasks.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+            }
+        ]
+    },
+    "PermissionPolicies": [
+        {
+            "PolicyName": "AmazonECSTaskExecutionRolePolicy",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "ECRTokenAuth",
+                        "Effect": "Allow",
+                        "Action": [
+                            "ecr:GetAuthorizationToken"
+                        ],
+                        "Resource": "*"
+                    },
+                    {
+                        "Sid": "ECRImagePull",
+                        "Effect": "Allow",
+                        "Action": [
+                            "ecr:BatchCheckLayerAvailability",
+                            "ecr:GetDownloadUrlForLayer",
+                            "ecr:BatchGetImage"
+                        ],
+                        "Resource": [
+                            "arn:aws:ecr:us-east-1:123456789012:repository/prod-app",
+                            "arn:aws:ecr:us-east-1:123456789012:repository/prod-sidecar"
+                        ]
+                    },
+                    {
+                        "Sid": "CloudWatchLogs",
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:CreateLogStream",
+                            "logs:PutLogEvents"
+                        ],
+                        "Resource": "arn:aws:logs:us-east-1:123456789012:log-group:/ecs/prod-app:*"
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "ProdSecretsAccess",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "ReadProdSecrets",
+                        "Effect": "Allow",
+                        "Action": [
+                            "secretsmanager:GetSecretValue"
+                        ],
+                        "Resource": [
+                            "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-password-*",
+                            "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/api-key-*"
+                        ]
+                    },
+                    {
+                        "Sid": "DecryptSecrets",
+                        "Effect": "Allow",
+                        "Action": [
+                            "kms:Decrypt",
+                            "kms:DescribeKey"
+                        ],
+                        "Resource": "arn:aws:kms:us-east-1:123456789012:key/mrk-prod-secrets-key"
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "SSMParameterAccess",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "ReadSSMParams",
+                        "Effect": "Allow",
+                        "Action": [
+                            "ssm:GetParameter",
+                            "ssm:GetParameters",
+                            "ssm:GetParametersByPath"
+                        ],
+                        "Resource": "arn:aws:ssm:us-east-1:123456789012:parameter/prod/*"
+                    }
+                ]
+            }
+        }
+    ]
+}

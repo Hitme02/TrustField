@@ -1,0 +1,224 @@
+/* TrustField 3D Visualization — UI Styles */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #0a0a12;
+  color: #e0e0e8;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ */
+/* Layout shell                                                         */
+/* ------------------------------------------------------------------ */
+
+#app {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+#canvas-container {
+  flex: 1;
+  position: relative;
+}
+
+canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Side panel                                                           */
+/* ------------------------------------------------------------------ */
+
+#panel {
+  width: 260px;
+  background: rgba(10, 10, 24, 0.92);
+  border-left: 1px solid rgba(100, 120, 200, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 16px 12px;
+  gap: 14px;
+  z-index: 10;
+}
+
+#panel h1 {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #a0b4ff;
+  line-height: 1.3;
+}
+
+#panel h1 span {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: #6070a0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------ */
+/* Metric cards                                                         */
+/* ------------------------------------------------------------------ */
+
+.metric-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metric-group h2 {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #5060a0;
+  padding-bottom: 3px;
+  border-bottom: 1px solid rgba(80, 100, 180, 0.2);
+}
+
+.metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.metric .label {
+  color: #8090c0;
+  font-size: 11px;
+}
+
+.metric .value {
+  font-weight: 600;
+  font-size: 12px;
+  color: #c8d4ff;
+}
+
+.metric .value.good  { color: #50e890; }
+.metric .value.warn  { color: #f0c040; }
+.metric .value.crit  { color: #f05050; }
+
+/* ------------------------------------------------------------------ */
+/* Legend                                                               */
+/* ------------------------------------------------------------------ */
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #8090c0;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot.compromised   { background: #cc2020; }
+.dot.critical_miss { background: #e05000; }
+.dot.predicted_only{ background: #d0a000; }
+.dot.contained     { background: #20a050; }
+.dot.safe          { background: #304060; }
+
+/* ------------------------------------------------------------------ */
+/* Node info panel                                                      */
+/* ------------------------------------------------------------------ */
+
+#node-info {
+  background: rgba(20, 24, 50, 0.9);
+  border: 1px solid rgba(100, 120, 200, 0.25);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  min-height: 80px;
+  color: #8090c0;
+}
+
+#node-info.active {
+  border-color: rgba(100, 160, 255, 0.5);
+  color: #c0d0ff;
+}
+
+#node-info strong {
+  color: #a0c0ff;
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Controls hint                                                        */
+/* ------------------------------------------------------------------ */
+
+#controls-hint {
+  font-size: 10px;
+  color: #404868;
+  line-height: 1.7;
+}
+
+#controls-hint kbd {
+  background: rgba(80, 100, 160, 0.2);
+  border: 1px solid rgba(80, 100, 160, 0.3);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-family: monospace;
+  font-size: 10px;
+  color: #6080b0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Loading overlay                                                      */
+/* ------------------------------------------------------------------ */
+
+#loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a12;
+  color: #6070a0;
+  font-size: 14px;
+  z-index: 100;
+  transition: opacity 0.4s;
+}
+
+#loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Topology badge                                                       */
+/* ------------------------------------------------------------------ */
+
+#topology-badge {
+  display: inline-block;
+  background: rgba(60, 80, 180, 0.2);
+  border: 1px solid rgba(80, 110, 220, 0.3);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: #8090d0;
+  text-transform: uppercase;
+}

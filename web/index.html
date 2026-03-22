@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrustField — 3D Trust-Propagation Visualization</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ---------------------------------------------------------------- -->
+    <!-- Side panel                                                         -->
+    <!-- ---------------------------------------------------------------- -->
+    <aside id="panel">
+      <div>
+        <h1>
+          TrustField
+          <span>Trust-Propagation Visualization</span>
+        </h1>
+        <div id="topology-badge">unknown</div>
+      </div>
+
+      <!-- Graph metrics -->
+      <div class="metric-group">
+        <h2>Graph</h2>
+        <div class="metric">
+          <span class="label">Nodes</span>
+          <span class="value" id="val-nodes">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Edges</span>
+          <span class="value" id="val-edges">—</span>
+        </div>
+      </div>
+
+      <!-- Blast-radius metrics -->
+      <div class="metric-group">
+        <h2>ExploitabilityGap (M4)</h2>
+        <div class="metric">
+          <span class="label">PBR (predicted)</span>
+          <span class="value" id="val-pbr">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">VBR (verified)</span>
+          <span class="value" id="val-vbr">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Gap</span>
+          <span class="value" id="val-gap">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Classification</span>
+          <span class="value" id="val-class">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">EGD Score</span>
+          <span class="value" id="val-egd">—</span>
+        </div>
+      </div>
+
+      <!-- Node-state counts -->
+      <div class="metric-group">
+        <h2>Node States</h2>
+        <div class="metric">
+          <span class="label">Compromised</span>
+          <span class="value crit" id="cnt-compromised">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Critical Miss</span>
+          <span class="value warn" id="cnt-critical_miss">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Predicted Only</span>
+          <span class="value warn" id="cnt-predicted_only">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Contained</span>
+          <span class="value good" id="cnt-contained">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Safe</span>
+          <span class="value" id="cnt-safe">—</span>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="metric-group">
+        <h2>Legend</h2>
+        <div class="legend">
+          <div class="legend-item"><div class="dot compromised"></div> Compromised (PBR ∩ VBR)</div>
+          <div class="legend-item"><div class="dot critical_miss"></div> Critical Miss (VBR only)</div>
+          <div class="legend-item"><div class="dot predicted_only"></div> Predicted Only (PBR only)</div>
+          <div class="legend-item"><div class="dot contained"></div> Contained by guards</div>
+          <div class="legend-item"><div class="dot safe"></div> Safe</div>
+        </div>
+      </div>
+
+      <!-- Node inspector -->
+      <div class="metric-group">
+        <h2>Node Inspector</h2>
+        <div id="node-info">Click a node to inspect it.</div>
+      </div>
+
+      <!-- Edge type legend -->
+      <div class="metric-group">
+        <h2>Edge Types</h2>
+        <div class="legend">
+          <div class="legend-item"><div class="dot" style="background:#e05050"></div> Assume Role</div>
+          <div class="legend-item"><div class="dot" style="background:#e0a020"></div> Secret Read</div>
+          <div class="legend-item"><div class="dot" style="background:#50a0e0"></div> Token Mint</div>
+          <div class="legend-item"><div class="dot" style="background:#a050e0"></div> Deploy To</div>
+          <div class="legend-item"><div class="dot" style="background:#408060"></div> Authenticate As</div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div id="controls-hint">
+        <kbd>Drag</kbd> orbit &nbsp;
+        <kbd>Right-drag</kbd> pan<br>
+        <kbd>Scroll</kbd> zoom &nbsp;
+        <kbd>Click</kbd> inspect node
+      </div>
+    </aside>
+
+    <!-- ---------------------------------------------------------------- -->
+    <!-- 3D canvas                                                          -->
+    <!-- ---------------------------------------------------------------- -->
+    <div id="canvas-container">
+      <div id="loading">Loading graph data…</div>
+    </div>
+
+  </div>
+
+  <!-- Three.js r128 (CDN) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!--
+    Inline data (generated by GraphExporter).
+    If present, this is used instead of fetching graph_data.json,
+    which means the page works when opened as a local file://.
+  -->
+  <script src="graph_data.js" onerror="/* no inline data */"></script>
+
+  <!-- App logic -->
+  <script src="trustfield.js"></script>
+</body>
+</html>

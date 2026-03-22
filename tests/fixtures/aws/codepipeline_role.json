@@ -1,0 +1,125 @@
+{
+    "_comment": "High-risk CI/CD role. iam:PassRole to codedeploy-deployment-role and cross-account sts:AssumeRole to staging create multi-hop paths the ensemble typically under-predicts. iam:PassRole is the most common CRITICAL_MISS IAM pattern.",
+    "RoleName": "codepipeline-deployment-role",
+    "RoleArn": "arn:aws:iam::123456789012:role/codepipeline-deployment-role",
+    "TrustPolicy": {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": "codepipeline.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+            }
+        ]
+    },
+    "PermissionPolicies": [
+        {
+            "PolicyName": "CodePipelineOrchestration",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "PipelineControl",
+                        "Effect": "Allow",
+                        "Action": [
+                            "codepipeline:*"
+                        ],
+                        "Resource": "*"
+                    },
+                    {
+                        "Sid": "ArtifactBucket",
+                        "Effect": "Allow",
+                        "Action": [
+                            "s3:GetObject",
+                            "s3:PutObject",
+                            "s3:GetObjectVersion",
+                            "s3:GetBucketVersioning",
+                            "s3:ListBucket"
+                        ],
+                        "Resource": [
+                            "arn:aws:s3:::codepipeline-artifacts-123456789012",
+                            "arn:aws:s3:::codepipeline-artifacts-123456789012/*"
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "LambdaDeployment",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "LambdaInvokeAndUpdate",
+                        "Effect": "Allow",
+                        "Action": [
+                            "lambda:InvokeFunction",
+                            "lambda:UpdateFunctionCode",
+                            "lambda:PublishVersion",
+                            "lambda:ListFunctions"
+                        ],
+                        "Resource": "*"
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "CloudFormationDeploy",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "CFNDeploy",
+                        "Effect": "Allow",
+                        "Action": [
+                            "cloudformation:CreateStack",
+                            "cloudformation:UpdateStack",
+                            "cloudformation:DeleteStack",
+                            "cloudformation:DescribeStacks",
+                            "cloudformation:CreateChangeSet",
+                            "cloudformation:ExecuteChangeSet",
+                            "cloudformation:DescribeChangeSet"
+                        ],
+                        "Resource": "*"
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "PassRoleToCodeDeploy",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "PassRoleForCodeDeploy",
+                        "Effect": "Allow",
+                        "Action": [
+                            "iam:PassRole"
+                        ],
+                        "Resource": "arn:aws:iam::123456789012:role/codedeploy-deployment-role",
+                        "_note": "iam:PassRole is the highest-risk permission pattern. Grants effective control over codedeploy-deployment-role without explicit AssumeRole."
+                    }
+                ]
+            }
+        },
+        {
+            "PolicyName": "CrossAccountStagingDeploy",
+            "Document": {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "AssumeRoleStagingAccount",
+                        "Effect": "Allow",
+                        "Action": [
+                            "sts:AssumeRole"
+                        ],
+                        "Resource": "arn:aws:iam::555666777888:role/staging-deploy-role",
+                        "_note": "Cross-account role assumption. Creates an attack path that reaches staging account resources — often missed by single-account analysis."
+                    }
+                ]
+            }
+        }
+    ]
+}
