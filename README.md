@@ -2,9 +2,6 @@
 
 **Topology-Aware Ensemble Trust Propagation Intelligence, Verification & Containment System**
 
-RV College of Engineering — Team PS-11 | Guide: Dr. Anand Jatti
-Target venue: IEEE/ACM/Springer (cybersecurity track)
-
 ---
 
 ## What is TrustField?
