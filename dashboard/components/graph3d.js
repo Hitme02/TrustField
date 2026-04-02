@@ -3,11 +3,11 @@
 const Graph3D = (() => {
 
   const NODE_COLORS = {
-    compromised:    0xff3b30,
-    predicted_only: 0xff9500,
-    critical_miss:  0xff6b35,
-    contained:      0x34c759,
-    safe:           0x2a2d3e,
+    compromised:    0xff3b30,   // red    — verified + predicted
+    predicted_only: 0xff9500,   // amber  — predicted but not verified
+    critical_miss:  0xff6b35,   // orange — verified but missed by ensemble
+    contained:      0x34c759,   // green  — guarded / not in blast radius
+    safe:           0x2e5a88,   // visible blue — unreachable, no risk
   };
 
   const EDGE_COLORS = {
@@ -177,11 +177,15 @@ const Graph3D = (() => {
       const priv = node.privilege ?? 0;
       const size = 2.5 + priv * 4.5;
 
+      // Safe nodes get a slightly larger minimum so they're never invisible
+      const isSafe   = node.state === 'safe';
+      const emissive = isSafe ? 0.45 : 0.25;
+
       const geo = new THREE.SphereGeometry(size, 14, 10);
       const mat = new THREE.MeshStandardMaterial({
         color: col,
         emissive: col,
-        emissiveIntensity: 0.25,
+        emissiveIntensity: emissive,
         roughness: 0.55,
         metalness: 0.25,
       });
@@ -300,6 +304,21 @@ const Graph3D = (() => {
     document.body.style.cursor = '';
   }
 
+  const STATE_LABELS = {
+    compromised:    'COMPROMISED',
+    predicted_only: 'PREDICTED',
+    critical_miss:  'CRITICAL MISS',
+    contained:      'CONTAINED',
+    safe:           'SAFE',
+  };
+  const STATE_HEX = {
+    compromised:    '#ff3b30',
+    predicted_only: '#ff9500',
+    critical_miss:  '#ff6b35',
+    contained:      '#34c759',
+    safe:           '#2e5a88',
+  };
+
   function _showTooltip(id, node) {
     if (!_tooltip) return;
     const canvas = _renderer.domElement;
@@ -311,13 +330,16 @@ const Graph3D = (() => {
     const px   = (proj.x  * 0.5 + 0.5) * rect.width  + rect.left;
     const py   = (-proj.y * 0.5 + 0.5) * rect.height + rect.top;
 
+    const stateLabel = STATE_LABELS[node.state] || (node.state || '—').toUpperCase();
+    const stateColor = STATE_HEX[node.state]    || '#8888aa';
+
     _tooltip.style.display = 'block';
-    _tooltip.style.left    = Math.min(px + 16, rect.right  - 190) + 'px';
+    _tooltip.style.left    = Math.min(px + 16, rect.right  - 200) + 'px';
     _tooltip.style.top     = Math.max(py - 12, rect.top  + 4)     + 'px';
     _tooltip.innerHTML = `
       <div class="tt-name">${id}</div>
       <div class="tt-row">Type: <span>${node.type || '—'}</span></div>
-      <div class="tt-row">State: <span>${node.state || '—'}</span></div>
+      <div class="tt-row">State: <span style="color:${stateColor};font-weight:600">${stateLabel}</span></div>
       <div class="tt-row">Priv: <span>${(node.privilege||0).toFixed(2)}</span></div>
       <div class="tt-row">Risk: <span>${(node.risk||0).toFixed(2)}</span></div>
     `;

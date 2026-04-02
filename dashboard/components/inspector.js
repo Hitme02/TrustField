@@ -7,7 +7,7 @@ const Inspector = (() => {
     predicted_only: '#ff9500',
     critical_miss:  '#ff6b35',
     contained:      '#34c759',
-    safe:           '#444466',
+    safe:           '#2e5a88',
   };
 
   const TYPE_COLORS = {
@@ -29,6 +29,13 @@ const Inspector = (() => {
     return '#ff3b30';
   }
 
+  // Injected by app.js so inspector can trigger breach without circular dep
+  let _onBreach = null;
+  let _currentTopology = null;
+
+  function setBreachCallback(fn) { _onBreach = fn; }
+  function setTopology(topo)     { _currentTopology = topo; }
+
   function show(nodeId, graphData) {
     const el = document.getElementById('inspector');
     if (!el) return;
@@ -49,11 +56,11 @@ const Inspector = (() => {
     const outEdges = graphData.edges.filter(e => e.source === nodeId);
     const inEdges  = graphData.edges.filter(e => e.target === nodeId);
 
-    const typeColor = TYPE_COLORS[node.type] || '#8888aa';
+    const typeColor  = TYPE_COLORS[node.type]  || '#8888aa';
     const stateColor = STATE_COLORS[node.state] || '#444466';
-    const priv  = node.privilege  ?? 0;
-    const risk  = node.risk       ?? 0;
-    const exploit = node.exploitability ?? risk;
+    const priv    = node.privilege       ?? 0;
+    const risk    = node.risk            ?? 0;
+    const exploit = node.exploitability  ?? risk;
 
     let html = `<div id="insp-name">${nodeId}</div>`;
 
@@ -83,7 +90,7 @@ const Inspector = (() => {
       <span class="insp-val mono" style="min-width:34px;text-align:right">${risk.toFixed(2)}</span>
     </div>`;
 
-    // Exploit bar (same as risk if not available)
+    // Exploit bar
     html += `<div class="insp-row">
       <span class="insp-key">Exploit</span>
       ${_bar(exploit, _riskColor(exploit))}
@@ -91,8 +98,8 @@ const Inspector = (() => {
     </div>`;
 
     // Badges
-    const pbr_on = inPBR ? 'on' : 'off';
-    const vbr_on = inVBR ? 'on' : 'off';
+    const pbr_on  = inPBR ? 'on' : 'off';
+    const vbr_on  = inVBR ? 'on' : 'off';
     const comp_on = (node.state === 'compromised' || node.state === 'critical_miss') ? 'on' : 'off';
     html += `<div style="margin-top:8px">
       <span class="badge ${pbr_on}">PBR</span>
@@ -119,6 +126,17 @@ const Inspector = (() => {
       });
     }
 
+    // Breach button — only shown on the SIM topology
+    if (_currentTopology === 'sim') {
+      const isSeed = (meta.seed_nodes || []).includes(nodeId);
+      html += `<button id="breach-btn" data-nodeid="${nodeId}">
+        ⚡ SIMULATE BREACH FROM THIS NODE
+      </button>`;
+      if (isSeed) {
+        html += `<div id="breach-seed-indicator">▲ Current breach seed</div>`;
+      }
+    }
+
     el.innerHTML = html;
 
     // Click edges to navigate
@@ -128,6 +146,15 @@ const Inspector = (() => {
         if (target && window._graph3d) window._graph3d.focusNode(target);
       });
     });
+
+    // Breach button handler
+    const breachBtn = el.querySelector('#breach-btn');
+    if (breachBtn) {
+      breachBtn.addEventListener('click', () => {
+        const nid = breachBtn.dataset.nodeid;
+        if (_onBreach) _onBreach(nid);
+      });
+    }
   }
 
   function _showPlaceholder(el) {
@@ -139,5 +166,5 @@ const Inspector = (() => {
     if (el) _showPlaceholder(el);
   }
 
-  return { show, clear };
+  return { show, clear, setBreachCallback, setTopology };
 })();

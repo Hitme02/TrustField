@@ -19,6 +19,8 @@
       <div id="status-bar">
         <span id="status-text" style="font-family:var(--mono);font-size:11px;color:var(--dim)">● READY</span>
       </div>
+      <!-- INFRA button: opens the admin panel (only visible on SIM tab) -->
+      <button id="admin-toggle-btn" title="Edit simulated infrastructure">INFRA</button>
       <button id="run-btn">RUN</button>
       <div id="live-indicator">
         <div id="live-dot"></div>
@@ -33,6 +35,14 @@
     <canvas id="graph-canvas"></canvas>
     <div id="graph-overlay"></div>
     <div id="node-tooltip"></div>
+    <!-- Legend -->
+    <div id="graph-legend">
+      <div class="legend-row"><div class="legend-dot" style="background:#ff3b30"></div><span>Compromised</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:#ff9500"></div><span>Predicted Only</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:#ff6b35"></div><span>Critical Miss</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:#34c759"></div><span>Contained</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:#2e5a88"></div><span>Safe</span></div>
+    </div>
   </main>
 
   <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
@@ -105,6 +115,7 @@
 <script src="/static/components/timeline.js"></script>
 <script src="/static/components/terminal.js"></script>
 <script src="/static/components/graph3d.js"></script>
+<script src="/static/components/admin.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -705,8 +705,106 @@ pytest tests/ -q
 | pyyaml | 6.0 | Kubernetes RBAC YAML parsing |
 | torch | 2.0 | GNN training and inference |
 | pytest | 7.4 | Test runner |
+| flask | 3.0 | Dashboard web server |
 
 Python 3.10+ required.
+
+---
+
+## Running the Project
+
+### Quickstart (one command)
+
+```bash
+./run.sh
+```
+
+This handles everything — creates the virtual environment, installs dependencies, and starts the dashboard. Open **http://127.0.0.1:5000**.
+
+```bash
+./run.sh --test        # run test suite first, then start dashboard
+./run.sh --demo        # run full pipeline demo first, then start dashboard
+./run.sh --test-only   # run tests and exit (no server)
+./run.sh --demo-only   # run pipeline demo and exit (no server)
+./run.sh --port 8080   # start dashboard on a custom port
+```
+
+---
+
+### Manual commands
+
+All commands assume you are in the `TrustField/` root directory with the virtual environment activated.
+
+### 1. Live Dashboard (recommended)
+
+```bash
+PYTHONPATH=. python server.py
+```
+
+Open **http://127.0.0.1:5000** in your browser.
+
+**What you can do:**
+- **HUB / CHAIN / DENSE / MIXED tabs** — view pre-generated synthetic topology results (click **RUN** to regenerate)
+- **SIM tab** — the simulated live infrastructure:
+  - Click **INFRA** to open the infrastructure editor
+  - Add or remove nodes (users, roles, services, secrets) and trust policies
+  - Click **ANALYZE** (or **RUN**) to run the full 6-module pipeline on your infra
+  - Click any node in the 3D graph → click **⚡ SIMULATE BREACH FROM THIS NODE** to run the pipeline from that entry point
+  - Watch attack paths, blast radius, and guard containment update in real time
+
+Optional flags:
+
+```bash
+PYTHONPATH=. python server.py --port 8080          # custom port
+PYTHONPATH=. python server.py --host 0.0.0.0       # expose on LAN
+```
+
+### 2. Run All Synthetic Topologies (CLI)
+
+Generates results for all four topology archetypes and writes output to `out/`:
+
+```bash
+PYTHONPATH=. python demos/demo_full_pipeline.py
+```
+
+### 3. Run Individual Module Demos
+
+```bash
+PYTHONPATH=. python demos/demo_graph.py          # Module 1 — graph construction
+PYTHONPATH=. python demos/demo_propagation.py    # Module 2 — all 6 propagation models
+PYTHONPATH=. python demos/demo_ensemble.py       # Module 3 — topology-aware ensemble
+PYTHONPATH=. python demos/demo_verification.py   # Module 4 — verification + blast radius
+PYTHONPATH=. python demos/demo_guards.py         # Module 5 — guard simulation
+PYTHONPATH=. python demos/demo_loaders.py        # Real-world IAM / K8s / CloudGoat loaders
+PYTHONPATH=. python demos/demo_baselines.py      # Baseline comparisons
+PYTHONPATH=. python demos/demo_scalability.py    # Scalability benchmark (N=10 → 500)
+PYTHONPATH=. python demos/demo_adversarial.py    # Adversarial robustness
+PYTHONPATH=. python demos/demo_gnn.py            # GNN training and evaluation
+```
+
+### 4. Run Tests
+
+```bash
+pytest tests/ -q                          # full suite (381 tests)
+pytest tests/test_graph.py -v             # single module
+pytest tests/test_real_world_extended.py  # CloudGoat 28-scenario validation
+```
+
+### 5. Python API (programmatic)
+
+```python
+from trustfield.pipeline import TrustFieldPipeline
+from trustfield.graph.iam_simulator import IAMSimulator
+
+# Generate a synthetic hub topology and run the full pipeline
+sim    = IAMSimulator()
+graph  = sim.generate("hub", num_nodes=30, seed=42)
+result = TrustFieldPipeline(output_dir="out/").run(
+    graph, seed_nodes=["svc-hub-00"], topology_label="hub"
+)
+print(f"Containment: {result.metrics['containment_success_rate']:.1%}")
+print(f"PBR: {result.metrics['pbr_size']}  VBR: {result.metrics['vbr_size']}")
+```
 
 ---
 
