@@ -691,10 +691,95 @@ def _add_cors(response):
     return response
 
 
+@app.route("/api/sim/upload-iam", methods=["POST"])
+def api_sim_upload_iam():
+    """Parse an AWS IAM policy JSON and merge its nodes/edges into the sim graph.
+
+    Body JSON:
+        policy      (dict, required)  — IAM policy document or role config bundle
+        subject_id  (str, optional)   — node ID of the principal this policy belongs to
+        subject_arn (str, optional)   — full ARN (used to infer node type / privilege)
+        replace     (bool, optional)  — if true, clear existing state first (default false)
+    """
+    body        = request.get_json(silent=True) or {}
+    policy_data = body.get("policy")
+    subject_id  = str(body.get("subject_id",  "")).strip() or None
+    subject_arn = str(body.get("subject_arn", "")).strip() or None
+    replace     = bool(body.get("replace", False))
+
+    if not policy_data:
+        return jsonify({"error": "'policy' field is required"}), 400
+
+    try:
+        from trustfield.loaders.aws_iam_loader import IAMPolicyLoader
+
+        loader = IAMPolicyLoader()
+        graph  = loader.load_dict(policy_data, subject_id=subject_id,
+                                  subject_arn=subject_arn)
+
+        state = copy.deepcopy(DEFAULT_SIM_STATE) if replace else _load_sim_state()
+
+        existing_ids   = {n["node_id"] for n in state["nodes"]}
+        existing_edges = {(e["source"], e["target"]) for e in state["edges"]}
+
+        added_nodes = 0
+        added_edges = 0
+
+        for node_id, data in graph._graph.nodes(data=True):
+            if node_id in existing_ids:
+                continue
+            meta = data["metadata"]
+            sim_type = meta.node_type.value          # NodeType enum values == VALID_NODE_TYPES
+            if sim_type not in VALID_NODE_TYPES:
+                sim_type = "SERVICE"
+            state["nodes"].append({
+                "node_id":       node_id,
+                "node_type":     sim_type,
+                "name":          meta.name or node_id,
+                "privilege_level": round(max(0.0, min(1.0, meta.privilege_level)), 2),
+                "sensitivity":     round(max(0.0, min(1.0, meta.sensitivity)),     2),
+            })
+            existing_ids.add(node_id)
+            added_nodes += 1
+
+        for src, tgt, data in graph._graph.edges(data=True):
+            if (src, tgt) in existing_edges:
+                continue
+            if src not in existing_ids or tgt not in existing_ids:
+                continue
+            meta      = data["metadata"]
+            edge_type = meta.edge_type.value
+            if edge_type not in VALID_EDGE_TYPES:
+                edge_type = "ASSUME_ROLE"
+            state["edges"].append({
+                "source":    src,
+                "target":    tgt,
+                "edge_type": edge_type,
+                "weight":    round(max(0.0, min(1.0, meta.weight)), 2),
+            })
+            existing_edges.add((src, tgt))
+            added_edges += 1
+
+        _save_sim_state(state)
+        _invalidate_sim_cache()
+
+        return jsonify({
+            "ok":          True,
+            "added_nodes": added_nodes,
+            "added_edges": added_edges,
+            "state":       state,
+        })
+
+    except Exception as exc:
+        import traceback
+        return jsonify({"error": str(exc), "trace": traceback.format_exc()}), 500
+
+
 @app.route("/api/sim/node", methods=["OPTIONS"])
 @app.route("/api/sim/edge", methods=["OPTIONS"])
 @app.route("/api/sim/run", methods=["OPTIONS"])
 @app.route("/api/sim/reset", methods=["OPTIONS"])
+@app.route("/api/sim/upload-iam", methods=["OPTIONS"])
 def _options_handler():
     return "", 204
 

@@ -25,10 +25,11 @@ const Admin = (() => {
     DEPLOYMENT: '#8888aa',
   };
 
-  let _state   = null;   // last known sim state
-  let _open    = false;
-  let _tab     = 'nodes'; // 'nodes' | 'edges'
-  let _onAnalyze = null;  // callback injected by app.js
+  let _state       = null;   // last known sim state
+  let _open        = false;
+  let _tab         = 'nodes';
+  let _onAnalyze   = null;
+  let _pendingEdges = [];    // edges to create alongside the new node
 
   // ── Public API ─────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ const Admin = (() => {
       <div id="admin-tabs">
         <button class="admin-tab active" data-tab="nodes">NODES</button>
         <button class="admin-tab" data-tab="edges">POLICIES</button>
+        <button class="admin-tab" data-tab="upload">UPLOAD IAM</button>
       </div>
 
       <div id="admin-body">
@@ -108,6 +110,13 @@ const Admin = (() => {
               <input id="n-sens" type="range" min="0" max="1" step="0.05" value="0.5" />
               <span  id="n-sens-val">0.50</span>
             </div>
+
+            <div class="admin-sub-head">
+              TRUST RELATIONSHIPS
+              <button id="add-pending-edge-btn" class="inline-add-btn">+ ADD</button>
+            </div>
+            <div id="pending-edges-list"></div>
+
             <button id="add-node-btn" class="form-submit-btn">ADD NODE</button>
             <div id="add-node-err" class="form-error"></div>
           </div>
@@ -132,6 +141,31 @@ const Admin = (() => {
             </div>
             <button id="add-edge-btn" class="form-submit-btn">ADD POLICY</button>
             <div id="add-edge-err" class="form-error"></div>
+          </div>
+        </div>
+
+        <!-- UPLOAD IAM tab -->
+        <div id="admin-upload-pane" class="admin-pane">
+          <div class="admin-form-head">UPLOAD AWS IAM POLICY JSON</div>
+          <div class="admin-form" id="upload-iam-form">
+            <div class="upload-instructions">
+              Paste an IAM policy document, role config bundle, or MAMIP export below.
+              Nodes and edges are merged into the current infrastructure model.
+            </div>
+            <div class="slider-row" style="justify-content:space-between;margin-bottom:4px">
+              <label style="color:var(--dim);font-size:11px">Replace existing infra</label>
+              <input id="u-replace" type="checkbox" style="width:auto;margin:0;cursor:pointer" />
+            </div>
+            <textarea id="u-json" rows="9"
+              placeholder='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["sts:AssumeRole"],"Resource":"*"}]}'
+            ></textarea>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:2px">
+              <button id="u-file-btn" class="form-submit-btn" style="flex:0 0 auto;font-size:10px">LOAD FILE</button>
+              <span id="u-file-name" style="font-size:10px;color:var(--dim);font-family:var(--mono)">no file selected</span>
+              <input id="u-file" type="file" accept=".json" style="display:none" />
+            </div>
+            <button id="upload-iam-btn" class="form-submit-btn">IMPORT INTO INFRA</button>
+            <div id="upload-iam-status" class="form-error"></div>
           </div>
         </div>
 
@@ -170,6 +204,23 @@ const Admin = (() => {
     // Form submissions
     document.getElementById('add-node-btn').addEventListener('click', _onAddNode);
     document.getElementById('add-edge-btn').addEventListener('click', _onAddEdge);
+    document.getElementById('upload-iam-btn').addEventListener('click', _onUploadIAM);
+    document.getElementById('add-pending-edge-btn').addEventListener('click', _addPendingEdgeRow);
+
+    // File picker for IAM upload
+    const fileInput = document.getElementById('u-file');
+    const fileBtn   = document.getElementById('u-file-btn');
+    if (fileBtn && fileInput) {
+      fileBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => {
+        const f = fileInput.files[0];
+        if (!f) return;
+        document.getElementById('u-file-name').textContent = f.name;
+        const reader = new FileReader();
+        reader.onload = e => { document.getElementById('u-json').value = e.target.result; };
+        reader.readAsText(f);
+      });
+    }
   }
 
   function _bindToggleBtn() {
@@ -282,21 +333,79 @@ const Admin = (() => {
     if (tgt) tgt.innerHTML = options;
   }
 
+  // ── Pending edges (created alongside a new node) ─────────────────────────
+
+  function _addPendingEdgeRow() {
+    if (!_state || _state.nodes.length === 0) return;
+    const idx = _pendingEdges.length;
+    _pendingEdges.push({ dir: 'out', target: '', edge_type: 'ASSUME_ROLE', weight: 0.7 });
+
+    const nodeOptions = _state.nodes
+      .map(n => `<option value="${n.node_id}">${n.node_id} (${n.node_type})</option>`)
+      .join('');
+    const edgeOptions = EDGE_TYPES
+      .map(t => `<option value="${t}">${t.replace(/_/g,' ')}</option>`)
+      .join('');
+
+    const row = document.createElement('div');
+    row.className = 'pending-edge-row';
+    row.dataset.idx = idx;
+    row.innerHTML = `
+      <select class="pe-dir">
+        <option value="out">→ can access</option>
+        <option value="in">← accessed by</option>
+      </select>
+      <select class="pe-node">${nodeOptions}</select>
+      <select class="pe-type">${edgeOptions}</select>
+      <div class="slider-row" style="margin:0;flex:1">
+        <input class="pe-weight" type="range" min="0.1" max="1" step="0.05" value="0.7" style="flex:1" />
+        <span class="pe-weight-val" style="min-width:28px">0.70</span>
+      </div>
+      <button class="pe-del del-btn">✕</button>
+    `;
+
+    row.querySelector('.pe-dir').addEventListener('change', e => { _pendingEdges[idx].dir = e.target.value; });
+    row.querySelector('.pe-node').addEventListener('change', e => { _pendingEdges[idx].target = e.target.value; });
+    row.querySelector('.pe-type').addEventListener('change', e => { _pendingEdges[idx].edge_type = e.target.value; });
+    row.querySelector('.pe-weight').addEventListener('input', e => {
+      _pendingEdges[idx].weight = parseFloat(e.target.value);
+      row.querySelector('.pe-weight-val').textContent = parseFloat(e.target.value).toFixed(2);
+    });
+    row.querySelector('.pe-del').addEventListener('click', () => {
+      _pendingEdges.splice(idx, 1);
+      row.remove();
+      // Re-index remaining rows
+      document.querySelectorAll('.pending-edge-row').forEach((r, i) => { r.dataset.idx = i; });
+    });
+
+    // Set default target to first node
+    _pendingEdges[idx].target = _state.nodes[0]?.node_id || '';
+
+    document.getElementById('pending-edges-list').appendChild(row);
+  }
+
+  function _clearPendingEdges() {
+    _pendingEdges = [];
+    const list = document.getElementById('pending-edges-list');
+    if (list) list.innerHTML = '';
+  }
+
   // ── Add node ───────────────────────────────────────────────────────────
 
   async function _onAddNode() {
-    const nodeId    = document.getElementById('n-id').value.trim();
-    const nodeType  = document.getElementById('n-type').value;
-    const name      = document.getElementById('n-name').value.trim() || nodeId;
-    const privilege = parseFloat(document.getElementById('n-priv').value);
+    const nodeId      = document.getElementById('n-id').value.trim();
+    const nodeType    = document.getElementById('n-type').value;
+    const name        = document.getElementById('n-name').value.trim() || nodeId;
+    const privilege   = parseFloat(document.getElementById('n-priv').value);
     const sensitivity = parseFloat(document.getElementById('n-sens').value);
-    const errEl     = document.getElementById('add-node-err');
+    const errEl       = document.getElementById('add-node-err');
 
     errEl.textContent = '';
     if (!nodeId) { errEl.textContent = 'node-id is required'; return; }
 
     _setBtnLoading('add-node-btn', true);
     try {
+      // 1. Create the node
       const res = await fetch('/api/sim/node', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -304,16 +413,33 @@ const Admin = (() => {
       });
       const data = await res.json();
       if (!res.ok) { errEl.textContent = data.error || 'Error'; return; }
+      _state = data.state;
 
-      // Clear form
+      // 2. Create any pending edges sequentially
+      for (const pe of _pendingEdges) {
+        if (!pe.target) continue;
+        const src = pe.dir === 'out' ? nodeId : pe.target;
+        const tgt = pe.dir === 'out' ? pe.target : nodeId;
+        await fetch('/api/sim/edge', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ source: src, target: tgt, edge_type: pe.edge_type, weight: pe.weight }),
+        });
+      }
+
+      // Reload state to pick up edges
+      const stateRes = await fetch('/api/sim/state');
+      _state = await stateRes.json();
+
+      // 3. Reset form
       document.getElementById('n-id').value   = '';
       document.getElementById('n-name').value = '';
       document.getElementById('n-priv').value = '0.5';
       document.getElementById('n-priv-val').textContent = '0.50';
       document.getElementById('n-sens').value = '0.5';
       document.getElementById('n-sens-val').textContent = '0.50';
+      _clearPendingEdges();
 
-      _state = data.state;
       _renderNodes();
       _renderEdges();
       _populateNodeSelects();
@@ -397,6 +523,55 @@ const Admin = (() => {
       _showBanner();
     } catch (e) {
       console.error('Delete edge error:', e);
+    }
+  }
+
+  // ── Upload IAM ────────────────────────────────────────────────────────
+
+  async function _onUploadIAM() {
+    const raw     = (document.getElementById('u-json')?.value || '').trim();
+    const replace = document.getElementById('u-replace')?.checked || false;
+    const statusEl = document.getElementById('upload-iam-status');
+
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '';
+
+    if (!raw) { statusEl.textContent = 'Paste or load a JSON policy document first.'; return; }
+
+    let policy;
+    try {
+      policy = JSON.parse(raw);
+    } catch (e) {
+      statusEl.textContent = `Invalid JSON: ${e.message}`;
+      return;
+    }
+
+    _setBtnLoading('upload-iam-btn', true);
+    try {
+      const res  = await fetch('/api/sim/upload-iam', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ policy, replace }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        statusEl.textContent = data.error || 'Upload failed';
+        return;
+      }
+      statusEl.style.color = 'var(--green)';
+      statusEl.textContent = `Imported: +${data.added_nodes} nodes, +${data.added_edges} edges`;
+      _state = data.state;
+      _renderNodes();
+      _renderEdges();
+      _populateNodeSelects();
+      _showBanner();
+      // Clear textarea
+      document.getElementById('u-json').value = '';
+      document.getElementById('u-file-name').textContent = 'no file selected';
+    } catch (e) {
+      statusEl.textContent = e.message;
+    } finally {
+      _setBtnLoading('upload-iam-btn', false);
     }
   }
 

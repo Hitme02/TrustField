@@ -143,12 +143,18 @@ class GraphExporter:
                 "exploitability_gap_score": round(
                     blast_radius.exploitability_gap_score, 4
                 ),
+                "pbr_nodes": sorted(blast_radius.pbr_nodes),
+                "vbr_nodes": sorted(blast_radius.vbr_nodes),
             })
         if containment_result is not None:
             meta["containment_success_rate"] = round(
                 containment_result.containment_success_rate, 4
             )
             meta["final_strictness"] = containment_result.final_strictness_level.value
+            meta["contained_nodes"] = sorted(containment_result.contained_nodes)
+            meta["blocked_transitions"] = [
+                list(t) for t in containment_result.blocked_transitions
+            ]
             meta["guard_events"] = [
                 {
                     "guard_id": ev.guard_id,
@@ -161,6 +167,8 @@ class GraphExporter:
                 for ev in containment_result.guard_events
             ]
         else:
+            meta["contained_nodes"] = []
+            meta["blocked_transitions"] = []
             meta["guard_events"] = []
 
         if traversal_result is not None:

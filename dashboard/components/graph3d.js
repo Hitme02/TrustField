@@ -19,6 +19,7 @@ const Graph3D = (() => {
   let _scene, _camera, _renderer, _animFrame;
   let _nodeMeshes  = {};
   let _edgeLines   = [];
+  let _edgeMap     = {};   // 'fromId:toId' → THREE.Line, for targeted mutations
   let _starField   = null;
   let _graphData   = null;
   let _selectedId  = null;
@@ -118,6 +119,7 @@ const Graph3D = (() => {
       l.material.dispose();
     });
     _edgeLines  = [];
+    _edgeMap    = {};
     _selectedId = null;
   }
 
@@ -169,6 +171,7 @@ const Graph3D = (() => {
       const line = new THREE.Line(geo, mat);
       _scene.add(line);
       _edgeLines.push(line);
+      _edgeMap[e.source + ':' + e.target] = line;
     });
 
     // ── Nodes ──────────────────────────────────────────────────────────
@@ -426,5 +429,47 @@ const Graph3D = (() => {
     if (_starField) { _scene.remove(_starField); _starField.geometry.dispose(); }
   }
 
-  return { init, loadGraph, focusNode, destroy };
+  // ── Demo-mode mutation API ─────────────────────────────────────────────
+
+  /** Change one node's color and state label without reloading the full graph. */
+  function setNodeState(nodeId, state) {
+    const mesh = _nodeMeshes[nodeId];
+    if (!mesh) return;
+    const col = NODE_COLORS[state] || NODE_COLORS.safe;
+    mesh.material.color.setHex(col);
+    mesh.material.emissive.setHex(col);
+    mesh.material.emissiveIntensity = (state === 'compromised' || state === 'critical_miss') ? 0.55 : 0.25;
+    if (_graphData) {
+      const n = _graphData.nodes.find(n => n.id === nodeId);
+      if (n) n.state = state;
+    }
+  }
+
+  /** Change one edge's color and opacity. colorHex is a 0xRRGGBB number. */
+  function setEdgeColor(fromId, toId, colorHex, opacity) {
+    const line = _edgeMap[fromId + ':' + toId];
+    if (!line) return;
+    line.material.color.setHex(colorHex);
+    line.material.opacity = opacity ?? 0.85;
+  }
+
+  /** Scale-burst animation on a single node — signals breach or containment. */
+  function pulseNode(nodeId) {
+    const mesh = _nodeMeshes[nodeId];
+    if (!mesh) return;
+    const base  = mesh.userData.baseScale || 1;
+    const start = performance.now();
+    function tick(now) {
+      const t = Math.min((now - start) / 500, 1);
+      mesh.scale.setScalar(base * (1 + Math.sin(t * Math.PI) * 0.65));
+      if (t < 1) requestAnimationFrame(tick);
+      else mesh.scale.setScalar(base);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  /** Expose raw graph data for demo controller. */
+  function getGraphData() { return _graphData; }
+
+  return { init, loadGraph, focusNode, destroy, setNodeState, setEdgeColor, pulseNode, getGraphData };
 })();

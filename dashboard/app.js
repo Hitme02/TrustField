@@ -16,8 +16,6 @@ const App = (() => {
   // ── Bootstrap ─────────────────────────────────────────────────────────
   function init() {
     _buildTabs();
-    _buildRunButton();
-    _buildNodeCount();
     _startClock();
     Terminal.initToggle();
 
@@ -30,6 +28,9 @@ const App = (() => {
 
     // Wire breach callback into inspector
     Inspector.setBreachCallback(_runBreach);
+
+    // Wire demo controller
+    DemoController.init();
 
     _loadTopology('hub');
   }
