@@ -1,0 +1,407 @@
+{
+  "UserDetailList": [
+    {
+      "UserId": "AIDAEXAMPLEDEVUSER01",
+      "UserName": "dev-alice",
+      "Arn": "arn:aws:iam::123456789012:user/dev-alice",
+      "Path": "/",
+      "GroupList": ["Developers"],
+      "AttachedManagedPolicies": [],
+      "UserPolicyList": [
+        {
+          "PolicyName": "AssumeDeployRole",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/deploy-role" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "UserId": "AIDAEXAMPLEDEVUSER02",
+      "UserName": "dev-bob",
+      "Arn": "arn:aws:iam::123456789012:user/dev-bob",
+      "Path": "/",
+      "GroupList": ["Developers"],
+      "AttachedManagedPolicies": [],
+      "UserPolicyList": [
+        {
+          "PolicyName": "AssumeDeployRole",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/deploy-role" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "UserId": "AIDAEXAMPLECIUSER01",
+      "UserName": "ci-runner",
+      "Arn": "arn:aws:iam::123456789012:user/ci-runner",
+      "Path": "/service/",
+      "GroupList": ["CIPipeline"],
+      "AttachedManagedPolicies": [
+        { "PolicyName": "ECRPushAccess", "PolicyArn": "arn:aws:iam::123456789012:policy/ECRPushAccess" }
+      ],
+      "UserPolicyList": []
+    },
+    {
+      "UserId": "AIDAEXAMPLEDATAUSER01",
+      "UserName": "data-analyst",
+      "Arn": "arn:aws:iam::123456789012:user/data-analyst",
+      "Path": "/data/",
+      "GroupList": ["DataTeam"],
+      "AttachedManagedPolicies": [],
+      "UserPolicyList": [
+        {
+          "PolicyName": "AssumeDataRole",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/data-pipeline-role" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "UserId": "AIDAEXAMPLEOPSUSER01",
+      "UserName": "ops-engineer",
+      "Arn": "arn:aws:iam::123456789012:user/ops-engineer",
+      "Path": "/ops/",
+      "GroupList": ["OpsTeam"],
+      "AttachedManagedPolicies": [],
+      "UserPolicyList": [
+        {
+          "PolicyName": "AssumeInfraRole",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/infra-admin-role" }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+
+  "GroupDetailList": [
+    {
+      "GroupId": "AGPAEXAMPLEDEVELOPER",
+      "GroupName": "Developers",
+      "Arn": "arn:aws:iam::123456789012:group/Developers",
+      "AttachedManagedPolicies": [],
+      "GroupPolicyList": [
+        {
+          "PolicyName": "DevBaseAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:ListBucket", "cloudwatch:GetMetricData"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "GroupId": "AGPAEXAMPLECIPIPELINE",
+      "GroupName": "CIPipeline",
+      "Arn": "arn:aws:iam::123456789012:group/CIPipeline",
+      "AttachedManagedPolicies": [
+        { "PolicyName": "ECRPushAccess", "PolicyArn": "arn:aws:iam::123456789012:policy/ECRPushAccess" }
+      ],
+      "GroupPolicyList": [
+        {
+          "PolicyName": "CodeBuildAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["codebuild:StartBuild", "codepipeline:StartPipelineExecution",
+                           "sts:AssumeRole"],
+                "Resource": ["*", "arn:aws:iam::123456789012:role/deploy-role"] }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "GroupId": "AGPAEXAMPLEDATATEAM",
+      "GroupName": "DataTeam",
+      "Arn": "arn:aws:iam::123456789012:group/DataTeam",
+      "AttachedManagedPolicies": [],
+      "GroupPolicyList": [
+        {
+          "PolicyName": "DataTeamBaseAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:ListBucket", "glue:GetTable",
+                           "sts:AssumeRole"],
+                "Resource": ["*", "arn:aws:iam::123456789012:role/data-pipeline-role"] }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "GroupId": "AGPAEXAMPLEOPSTEAM",
+      "GroupName": "OpsTeam",
+      "Arn": "arn:aws:iam::123456789012:group/OpsTeam",
+      "AttachedManagedPolicies": [],
+      "GroupPolicyList": [
+        {
+          "PolicyName": "OpsBaseAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["ec2:DescribeInstances", "cloudwatch:*", "sts:AssumeRole"],
+                "Resource": ["*", "arn:aws:iam::123456789012:role/infra-admin-role"] }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+
+  "RoleDetailList": [
+    {
+      "RoleId": "AROAEXAMPLEDEPLOYROLE",
+      "RoleName": "deploy-role",
+      "Arn": "arn:aws:iam::123456789012:role/deploy-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": [
+              "arn:aws:iam::123456789012:user/dev-alice",
+              "arn:aws:iam::123456789012:user/dev-bob",
+              "arn:aws:iam::123456789012:group/CIPipeline"
+            ]},
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "EscalateToAdmin",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": [
+                  "arn:aws:iam::123456789012:role/infra-admin-role",
+                  "arn:aws:iam::123456789012:role/lambda-invoke-role"
+                ]}
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": [
+        { "PolicyName": "LambdaDeployPolicy", "PolicyArn": "arn:aws:iam::123456789012:policy/LambdaDeployPolicy" }
+      ]
+    },
+    {
+      "RoleId": "AROAEXAMPLEAPIROLE",
+      "RoleName": "api-execution-role",
+      "Arn": "arn:aws:iam::123456789012:role/api-execution-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "Service": "lambda.amazonaws.com" },
+            "Action": "sts:AssumeRole" },
+          { "Effect": "Allow",
+            "Principal": { "AWS": "arn:aws:iam::123456789012:role/lambda-invoke-role" },
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "ReadDbSecrets",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["secretsmanager:GetSecretValue", "kms:Decrypt"],
+                "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-credentials" },
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/secrets-reader-role" }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": []
+    },
+    {
+      "RoleId": "AROAEXAMPLEADMINROLE",
+      "RoleName": "infra-admin-role",
+      "Arn": "arn:aws:iam::123456789012:role/infra-admin-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": [
+              "arn:aws:iam::123456789012:role/deploy-role",
+              "arn:aws:iam::123456789012:user/ops-engineer"
+            ]},
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [],
+      "AttachedManagedPolicies": [
+        { "PolicyName": "AdministratorAccess", "PolicyArn": "arn:aws:iam::aws:policy/AdministratorAccess" }
+      ]
+    },
+    {
+      "RoleId": "AROAEXAMPLEDATAROLE",
+      "RoleName": "data-pipeline-role",
+      "Arn": "arn:aws:iam::123456789012:role/data-pipeline-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": [
+              "arn:aws:iam::123456789012:user/data-analyst",
+              "arn:aws:iam::123456789012:group/DataTeam"
+            ]},
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [],
+      "AttachedManagedPolicies": [
+        { "PolicyName": "DataPipelineAccess", "PolicyArn": "arn:aws:iam::123456789012:policy/DataPipelineAccess" }
+      ]
+    },
+    {
+      "RoleId": "AROAEXAMPLELAMBDAROLE",
+      "RoleName": "lambda-invoke-role",
+      "Arn": "arn:aws:iam::123456789012:role/lambda-invoke-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": "arn:aws:iam::123456789012:role/deploy-role" },
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "InvokeLambdaAndEscalate",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Action": "lambda:InvokeFunction", "Resource": "*" },
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/api-execution-role" }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": []
+    },
+    {
+      "RoleId": "AROAEXAMPLESECRETSROLE",
+      "RoleName": "secrets-reader-role",
+      "Arn": "arn:aws:iam::123456789012:role/secrets-reader-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": "arn:aws:iam::123456789012:role/api-execution-role" },
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "ReadAllSecrets",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["secretsmanager:GetSecretValue", "secretsmanager:ListSecrets", "kms:Decrypt"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": []
+    }
+  ],
+
+  "Policies": [
+    {
+      "PolicyName": "ECRPushAccess",
+      "PolicyId": "ANPAEXAMPLEECRACCESS",
+      "Arn": "arn:aws:iam::123456789012:policy/ECRPushAccess",
+      "PolicyVersionList": [
+        {
+          "VersionId": "v1",
+          "IsDefaultVersion": true,
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["ecr:GetAuthorizationToken", "ecr:BatchCheckLayerAvailability",
+                           "ecr:PutImage", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart",
+                           "ecr:CompleteLayerUpload"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "PolicyName": "LambdaDeployPolicy",
+      "PolicyId": "ANPAEXAMPLELAMBDADEPLOY",
+      "Arn": "arn:aws:iam::123456789012:policy/LambdaDeployPolicy",
+      "PolicyVersionList": [
+        {
+          "VersionId": "v1",
+          "IsDefaultVersion": true,
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["lambda:UpdateFunctionCode", "lambda:CreateFunction",
+                           "lambda:InvokeFunction", "sts:AssumeRole"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "PolicyName": "DataPipelineAccess",
+      "PolicyId": "ANPAEXAMPLEDATAPIPELINE",
+      "Arn": "arn:aws:iam::123456789012:policy/DataPipelineAccess",
+      "PolicyVersionList": [
+        {
+          "VersionId": "v1",
+          "IsDefaultVersion": true,
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket",
+                           "rds:DescribeDBInstances", "rds:Connect",
+                           "glue:GetTable", "glue:GetDatabase", "glue:StartJobRun"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

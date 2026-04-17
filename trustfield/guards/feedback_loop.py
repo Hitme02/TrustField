@@ -68,9 +68,9 @@ class HardwareSoftwareFeedback:
     """
 
     RISK_THRESHOLDS = {
-        StrictnessLevel.NOMINAL:   (0.00, 0.40),
-        StrictnessLevel.ELEVATED:  (0.40, 0.75),
-        StrictnessLevel.LOCKDOWN:  (0.75, 1.01),
+        StrictnessLevel.NOMINAL:   (0.00, 0.25),
+        StrictnessLevel.ELEVATED:  (0.25, 0.50),
+        StrictnessLevel.LOCKDOWN:  (0.50, 1.01),
     }
 
     def __init__(
@@ -107,6 +107,7 @@ class HardwareSoftwareFeedback:
         graph: TrustGraph,
         seed_nodes: List[str],
         n_cycles: int = 5,
+        use_gnn: bool = True,
     ) -> List[FeedbackAction]:
         """Execute n_cycles of the hardware-software feedback loop.
 
@@ -137,7 +138,7 @@ class HardwareSoftwareFeedback:
         for _cycle in range(n_cycles):
             # --- 1. Ensemble analysis ---
             try:
-                analysis = self._orchestrator.analyze(graph, current_seeds)
+                analysis = self._orchestrator.analyze(graph, current_seeds, use_gnn=use_gnn)
             except Exception:
                 break
 
@@ -256,14 +257,14 @@ class HardwareSoftwareFeedback:
             (stricter depth check requires ≤ max−1, which is 0 for limit=1).
         NOMINAL:  no changes.
         """
-        if strictness == StrictnessLevel.LOCKDOWN:
+        if strictness in (StrictnessLevel.LOCKDOWN, StrictnessLevel.ELEVATED):
             for edge in self._guard_network._deployed_guards:
                 src, tgt = edge
                 if graph._graph.has_edge(src, tgt):
                     graph._graph[src][tgt]["weight"] = 0.0
                     graph._graph[src][tgt]["metadata"].weight = 0.0
 
-        elif strictness == StrictnessLevel.ELEVATED:
+        if False:  # legacy ELEVATED partial-block path — kept for reference
             for edge in self._guard_network._deployed_guards:
                 src, tgt = edge
                 if graph._graph.has_edge(src, tgt):

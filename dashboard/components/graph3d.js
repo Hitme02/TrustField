@@ -11,9 +11,9 @@ const Graph3D = (() => {
   };
 
   const EDGE_COLORS = {
-    blocked:  0xff3b30,
+    blocked:  0x1e3b2e,   // dark green — path sealed by guard
     critical: 0xff9500,
-    normal:   0x252838,
+    normal:   0x2a3f6e,   // visible blue-grey — trust edge
   };
 
   let _scene, _camera, _renderer, _animFrame;
@@ -162,9 +162,9 @@ const Graph3D = (() => {
       const isCritical = timelineEdges.has(key);
 
       let col = EDGE_COLORS.normal;
-      let opa = 0.45;
-      if (isBlocked)        { col = EDGE_COLORS.blocked;  opa = 0.90; }
-      else if (isCritical)  { col = EDGE_COLORS.critical; opa = 0.70; }
+      let opa = 0.65;
+      if (isBlocked)        { col = EDGE_COLORS.blocked;  opa = 0.35; }
+      else if (isCritical)  { col = EDGE_COLORS.critical; opa = 0.85; }
 
       const geo = new THREE.BufferGeometry().setFromPoints([sp, tp]);
       const mat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: opa });
@@ -471,5 +471,19 @@ const Graph3D = (() => {
   /** Expose raw graph data for demo controller. */
   function getGraphData() { return _graphData; }
 
-  return { init, loadGraph, focusNode, destroy, setNodeState, setEdgeColor, pulseNode, getGraphData };
+  /** Flash an edge briefly — used for live mock-cloud traffic events. */
+  function pulseEdge(fromId, toId, colorHex, durationMs) {
+    const line = _edgeMap[fromId + ':' + toId];
+    if (!line) return;
+    const origColor = line.material.color.getHex();
+    const origOpa   = line.material.opacity;
+    line.material.color.setHex(colorHex);
+    line.material.opacity = 1.0;
+    setTimeout(() => {
+      line.material.color.setHex(origColor);
+      line.material.opacity = origOpa;
+    }, durationMs || 550);
+  }
+
+  return { init, loadGraph, focusNode, destroy, setNodeState, setEdgeColor, pulseNode, pulseEdge, getGraphData };
 })();

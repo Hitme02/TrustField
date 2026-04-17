@@ -1,0 +1,295 @@
+{
+  "nodes": [
+    {
+      "node_id": "iam:user:dev-alice",
+      "node_type": "USER",
+      "name": "dev-alice",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:group:Developers",
+      "node_type": "ROLE",
+      "name": "Developers",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:role:deploy-role",
+      "node_type": "ROLE",
+      "name": "deploy-role",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:user:dev-bob",
+      "node_type": "USER",
+      "name": "dev-bob",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:user:ci-runner",
+      "node_type": "USER",
+      "name": "ci-runner",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:group:CIPipeline",
+      "node_type": "ROLE",
+      "name": "CIPipeline",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "aws:resource:wildcard",
+      "node_type": "SECRET",
+      "name": "* (wildcard)",
+      "privilege_level": 1.0,
+      "sensitivity": 1.0
+    },
+    {
+      "node_id": "iam:user:data-analyst",
+      "node_type": "USER",
+      "name": "data-analyst",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:group:DataTeam",
+      "node_type": "ROLE",
+      "name": "DataTeam",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:role:data-pipeline-role",
+      "node_type": "ROLE",
+      "name": "data-pipeline-role",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:user:ops-engineer",
+      "node_type": "USER",
+      "name": "ops-engineer",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:group:OpsTeam",
+      "node_type": "ROLE",
+      "name": "OpsTeam",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:role:infra-admin-role",
+      "node_type": "ROLE",
+      "name": "infra-admin-role",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:role:lambda-invoke-role",
+      "node_type": "ROLE",
+      "name": "lambda-invoke-role",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "iam:role:api-execution-role",
+      "node_type": "ROLE",
+      "name": "api-execution-role",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    },
+    {
+      "node_id": "lambda.amazonaws.com",
+      "node_type": "SERVICE",
+      "name": "lambda.amazonaws.com",
+      "privilege_level": 0.3,
+      "sensitivity": 0.6
+    },
+    {
+      "node_id": "secretsmanager:secret:prod:db-credentials",
+      "node_type": "SECRET",
+      "name": "db-credentials",
+      "privilege_level": 0.3,
+      "sensitivity": 0.9
+    },
+    {
+      "node_id": "iam:role:secrets-reader-role",
+      "node_type": "ROLE",
+      "name": "secrets-reader-role",
+      "privilege_level": 0.5,
+      "sensitivity": 0.8
+    }
+  ],
+  "edges": [
+    {
+      "source": "iam:user:dev-alice",
+      "target": "iam:group:Developers",
+      "edge_type": "AUTHENTICATE_AS",
+      "weight": 0.5
+    },
+    {
+      "source": "iam:user:dev-alice",
+      "target": "iam:role:deploy-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:group:Developers",
+      "target": "aws:resource:wildcard",
+      "edge_type": "AUTHENTICATE_AS",
+      "weight": 0.25
+    },
+    {
+      "source": "iam:role:deploy-role",
+      "target": "iam:role:infra-admin-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:role:deploy-role",
+      "target": "iam:role:lambda-invoke-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:role:deploy-role",
+      "target": "aws:resource:wildcard",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:user:dev-bob",
+      "target": "iam:group:Developers",
+      "edge_type": "AUTHENTICATE_AS",
+      "weight": 0.5
+    },
+    {
+      "source": "iam:user:dev-bob",
+      "target": "iam:role:deploy-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:user:ci-runner",
+      "target": "iam:group:CIPipeline",
+      "edge_type": "AUTHENTICATE_AS",
+      "weight": 0.5
+    },
+    {
+      "source": "iam:user:ci-runner",
+      "target": "aws:resource:wildcard",
+      "edge_type": "DEPLOY_TO",
+      "weight": 0.5
+    },
+    {
+      "source": "iam:group:CIPipeline",
+      "target": "aws:resource:wildcard",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:group:CIPipeline",
+      "target": "iam:role:deploy-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:user:data-analyst",
+      "target": "iam:group:DataTeam",
+      "edge_type": "AUTHENTICATE_AS",
+      "weight": 0.5
+    },
+    {
+      "source": "iam:user:data-analyst",
+      "target": "iam:role:data-pipeline-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:group:DataTeam",
+      "target": "aws:resource:wildcard",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:group:DataTeam",
+      "target": "iam:role:data-pipeline-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:role:data-pipeline-role",
+      "target": "aws:resource:wildcard",
+      "edge_type": "AUTHENTICATE_AS",
+      "weight": 0.5
+    },
+    {
+      "source": "iam:user:ops-engineer",
+      "target": "iam:group:OpsTeam",
+      "edge_type": "AUTHENTICATE_AS",
+      "weight": 0.5
+    },
+    {
+      "source": "iam:user:ops-engineer",
+      "target": "iam:role:infra-admin-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:group:OpsTeam",
+      "target": "aws:resource:wildcard",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:group:OpsTeam",
+      "target": "iam:role:infra-admin-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:role:lambda-invoke-role",
+      "target": "iam:role:api-execution-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:role:lambda-invoke-role",
+      "target": "aws:resource:wildcard",
+      "edge_type": "TOKEN_MINT",
+      "weight": 0.5
+    },
+    {
+      "source": "iam:role:api-execution-role",
+      "target": "secretsmanager:secret:prod:db-credentials",
+      "edge_type": "SECRET_READ",
+      "weight": 0.7
+    },
+    {
+      "source": "iam:role:api-execution-role",
+      "target": "iam:role:secrets-reader-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "lambda.amazonaws.com",
+      "target": "iam:role:api-execution-role",
+      "edge_type": "ASSUME_ROLE",
+      "weight": 0.85
+    },
+    {
+      "source": "iam:role:secrets-reader-role",
+      "target": "aws:resource:wildcard",
+      "edge_type": "SECRET_READ",
+      "weight": 0.7
+    }
+  ],
+  "breach_seed": "iam:role:lambda-invoke-role"
+}

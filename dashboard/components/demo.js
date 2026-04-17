@@ -11,10 +11,12 @@
 const DemoController = (() => {
 
   // ── Module state ────────────────────────────────────────────────────────
-  let _data    = null;   // full pipeline result (nodes, edges, metadata)
-  let _step    = -1;     // current step index  (-1 = not active)
-  let _cancel  = 0;      // increment to abort in-flight animations
-  let _ready   = false;  // pipeline result received
+  let _data       = null;   // full pipeline result (nodes, edges, metadata)
+  let _step       = -1;     // current step index  (-1 = not active)
+  let _cancel     = 0;      // increment to abort in-flight animations
+  let _ready      = false;  // pipeline result received
+  let _attackNode = null;   // attacked node id — known immediately, before pipeline finishes
+  let _useGnn     = false;  // GNN toggle — off by default for speed
 
   const TOTAL_STEPS = 6;
 
@@ -35,6 +37,13 @@ const DemoController = (() => {
              'Each node is a principal or resource — IAM users, roles, services, secrets.\n' +
              'Each edge is a trust relationship — assume-role, secret-read, deploy-to.\n\n' +
              'Click NEXT to simulate a breach.';
+    }
+    // Step 1 can render immediately using just the attack node — no pipeline needed
+    if (!_data && i === 1) {
+      const node = _attackNode || '?';
+      return `"${node}" has been compromised.\n` +
+             `TrustField is tracing every trust delegation the attacker can exploit.\n\n` +
+             `Analysis running in background — click NEXT to proceed once ready.`;
     }
     if (!_data) return 'Analysis running… please wait.';
 
@@ -72,16 +81,22 @@ const DemoController = (() => {
       `${timeline.length - pathSteps} edges were blocked by weight conditions or token limits.\n\n` +
       `The attacker can reach ${vbrSize} nodes from "${seedId}".`,
       // Step 3: ANALYSIS
-      `6 propagation models ran in parallel: BFS traversal, SIR epidemic, spectral cascade,\n` +
-      `percolation, control system, and GNN.\n\n` +
+      (_useGnn
+        ? `6 propagation models ran in parallel: BFS traversal, SIR epidemic, spectral cascade,\npercolation, control system, and GNN.\n\n`
+        : `5 propagation models ran in parallel: BFS traversal, SIR epidemic, spectral cascade,\npercolation, and control system.  (GNN disabled)\n\n`) +
       `Predicted Blast Radius (PBR): ${pbrSize} nodes flagged at risk.\n` +
       `Verified Blast Radius (VBR): ${vbrSize} confirmed reachable via formal IAM traversal.\n` +
       `Exploitability Gap: ${egd}  (${gapClass})`,
       // Step 4: CONTAINMENT
-      `The cyber-physical guard system is isolating the attack path.\n` +
-      `${blockedCnt} trust edges are being revoked.\n` +
-      `Adaptive feedback loop escalated strictness to ${strictness}.\n\n` +
-      `Watch edges go dark as the attack path closes down.`,
+      (blockedCnt > 0
+        ? `The cyber-physical guard system is isolating the attack path.\n` +
+          `${blockedCnt} trust edges are being revoked.\n` +
+          `Adaptive feedback loop escalated strictness to ${strictness}.\n\n` +
+          `Watch edges go dark as the attack path closes down.`
+        : `The compromised node is a resource sink — no outward attack path.\n` +
+          `TrustField is revoking all inbound trust edges to the compromised resource,\n` +
+          `cutting off any further access to it.\n\n` +
+          `Adaptive strictness: ${strictness}.`),
       // Step 5: SECURED
       `Containment complete.\n\n` +
       `${contained.length} nodes isolated  ·  ${rate}% containment success rate\n` +
@@ -111,11 +126,16 @@ const DemoController = (() => {
     Graph3D.loadGraph(_safeSnapshot());
   }
 
-  // Step 1 — seed nodes turn red + pulse
+  // Step 1 — seed nodes turn red + pulse (works even before pipeline finishes)
   function _applyBreachStep(tok) {
-    if (!_data) return;
-    Graph3D.loadGraph(_safeSnapshot());
-    const seeds = _data.metadata?.seed_nodes || [];
+    // Use pipeline seed list if available, fall back to the known attacked node
+    const seeds = _data?.metadata?.seed_nodes?.length
+      ? _data.metadata.seed_nodes
+      : (_attackNode ? [_attackNode] : []);
+    if (!seeds.length) return;
+
+    if (_data) Graph3D.loadGraph(_safeSnapshot());
+    // If pipeline isn't done yet, just mark the known attacked node on the current graph
     setTimeout(() => {
       if (_cancel !== tok) return;
       seeds.forEach(id => {
@@ -185,7 +205,15 @@ const DemoController = (() => {
     if (!_data) return;
     _applyAnalysisStep();  // start from full-risk state
 
+    // Push guards to mock cloud so manual pings start getting blocked immediately
     const blocks  = _data.metadata?.blocked_transitions || [];
+    if (blocks.length) {
+      fetch('/api/mock/guards', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ blocked_transitions: blocks }),
+      }).catch(() => {});
+    }
     const contained = _data.metadata?.contained_nodes || [];
     const delay   = Math.max(120, Math.min(250, 1400 / Math.max(1, blocks.length)));
 
@@ -199,8 +227,22 @@ const DemoController = (() => {
     });
 
     // After all edges blocked: turn contained nodes green
+    // Also derive contained set from blocked edges if pipeline returned empty
     const greenAt = 300 + blocks.length * delay + 500;
-    contained.forEach((id, i) => {
+    const nodesToGreen = contained.length ? contained : (() => {
+      // Any non-seed node whose every outgoing edge is in the blocked set
+      const blockedSet = new Set(blocks.map(e => Array.isArray(e) ? e[0]+':'+e[1] : e));
+      const seeds = new Set(_data.metadata?.seed_nodes || []);
+      const outEdges = {};
+      (_data.edges || []).forEach(e => {
+        (outEdges[e.source] = outEdges[e.source] || []).push(e.source + ':' + e.target);
+      });
+      return Object.entries(outEdges)
+        .filter(([id, outs]) => !seeds.has(id) && outs.length > 0 && outs.every(k => blockedSet.has(k)))
+        .map(([id]) => id);
+    })();
+
+    nodesToGreen.forEach((id, i) => {
       setTimeout(() => {
         if (_cancel !== tok) return;
         Graph3D.setNodeState(id, 'contained');
@@ -209,10 +251,43 @@ const DemoController = (() => {
     });
   }
 
-  // Step 5 — load full final state
+  // Step 5 — load full final state, then dim all attack-path edges
   function _applySecuredStep() {
     if (!_data) return;
     Graph3D.loadGraph(_data);
+
+    const meta  = _data.metadata || {};
+    const nodes = _data.nodes    || [];
+
+    // Build set of compromised / critical-miss node IDs
+    const hotNodes = new Set(
+      nodes.filter(n => n.state === 'compromised' || n.state === 'critical_miss').map(n => n.id)
+    );
+
+    const blockedSet = new Set(
+      (meta.blocked_transitions || []).map(e => Array.isArray(e) ? e[0]+':'+e[1] : e)
+    );
+
+    // Dim all edges touching a hot node — guard or not
+    (_data.edges || []).forEach(e => {
+      if (hotNodes.has(e.source) || hotNodes.has(e.target)) {
+        const key = e.source + ':' + e.target;
+        if (blockedSet.has(key)) {
+          // Explicitly blocked by guard — nearly invisible dark red
+          Graph3D.setEdgeColor(e.source, e.target, 0x3b1010, 0.60);
+        } else {
+          // Reachable but not explicitly blocked — dim orange-red
+          Graph3D.setEdgeColor(e.source, e.target, 0x2a1a0a, 0.40);
+        }
+      }
+    });
+
+    // Also dim traversal edges not involving hot nodes (severed by upstream containment)
+    (meta.traversal_timeline || []).filter(s => s.succeeded).forEach(s => {
+      if (!hotNodes.has(s.from_node) && !hotNodes.has(s.to_node)) {
+        Graph3D.setEdgeColor(s.from_node, s.to_node, 0x1a1a2e, 0.20);
+      }
+    });
   }
 
   // ── Step rendering ───────────────────────────────────────────────────────
@@ -223,12 +298,25 @@ const DemoController = (() => {
 
     const tok = _cancel;
     switch (i) {
-      case 0: _applyInfraStep();         break;
-      case 1: _applyBreachStep(tok);     break;
-      case 2: _applyPathsStep(tok);      break;
-      case 3: _applyAnalysisStep();      break;
-      case 4: _applyContainmentStep(tok);break;
-      case 5: _applySecuredStep();       break;
+      case 0: _applyInfraStep();          break;
+      case 1: _applyBreachStep(tok);      break;
+      case 2: _applyPathsStep(tok);       break;
+      case 3: _applyAnalysisStep();       break;
+      case 4: _applyContainmentStep(tok); break;
+      case 5: _applySecuredStep();        break;
+    }
+
+    // Sync sidebar state counts whenever we have pipeline data
+    if (_data && typeof App !== 'undefined') {
+      // For steps that mutate node states, build the display snapshot
+      if (i === 3) {
+        // Analysis: show compromised state (no containment applied yet)
+        const snap = JSON.parse(JSON.stringify(_data));
+        snap.nodes.forEach(n => { if (n.state === 'contained') n.state = 'compromised'; });
+        App.updateDisplay(snap);
+      } else if (i === 5) {
+        App.updateDisplay(_data);
+      }
     }
   }
 
@@ -241,12 +329,23 @@ const DemoController = (() => {
 
   // ── Pipeline run ─────────────────────────────────────────────────────────
 
+  const SYNTHETIC_TOPOS = new Set(['hub', 'chain', 'dense_cluster', 'mixed']);
+
+  function _pipelineRequest() {
+    if (SYNTHETIC_TOPOS.has(_topology)) {
+      const n = parseInt(document.getElementById('node-count')?.value || '50', 10);
+      return { url: `/api/run/${_topology}`, body: { num_nodes: n, seed: 42, use_gnn: _useGnn } };
+    }
+    return { url: `/api/${_topology}/run`, body: { use_gnn: _useGnn } };
+  }
+
   async function _runPipeline() {
     try {
-      const res = await fetch('/api/sim/run', {
+      const { url, body } = _pipelineRequest();
+      const res = await fetch(url, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({}),
+        body:    JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -272,8 +371,8 @@ const DemoController = (() => {
                 _data  = payload.data;
                 _ready = true;
                 _setLoading(false);
-                // Refresh current step narration now that data is available
-                if (_step === 0) _updateUI(0);
+                // Refresh narration and unlock NEXT for whatever step we're on
+                _updateUI(_step);
               } else if (event === 'error') {
                 _setLoading(false);
                 _setError(payload.msg || 'Pipeline error');
@@ -291,36 +390,29 @@ const DemoController = (() => {
 
   // ── Public API ───────────────────────────────────────────────────────────
 
+  let _topology = 'sim';   // set by app.js via setTopology()
+
   function init() {
     _buildOverlay();
-    const btn = document.getElementById('demo-btn');
-    if (btn) btn.addEventListener('click', startDemo);
+    // Demo starts automatically when an attack is detected from /system — no manual button
   }
 
-  async function startDemo() {
-    // Reset state
+  function setTopology(topo) {
+    _topology = topo;
+  }
+
+  async function startDemo(attackNode) {
     _cancel++;
-    _step   = 0;
-    _ready  = false;
-    _data   = null;
+    _step       = 0;
+    _ready      = false;
+    _data       = null;
+    _attackNode = attackNode || null;
 
     document.getElementById('demo-overlay').classList.add('active');
     _setLoading(true);
     _setError('');
-    _updateUI(0);
+    _renderStep(0);   // show infra immediately; pipeline runs in background
 
-    // Fetch current preview to show infra immediately
-    try {
-      const res  = await fetch('/api/graph/sim');
-      const prev = await res.json();
-      // Reset all to safe for the infra step
-      (prev.nodes || []).forEach(n => { n.state = 'safe'; n.risk = 0; });
-      prev.metadata = { traversal_timeline: [], guard_events: [],
-                        blocked_transitions: [], seed_nodes: [] };
-      Graph3D.loadGraph(prev);
-    } catch (_) {}
-
-    // Run pipeline in background
     _runPipeline();
   }
 
@@ -341,6 +433,9 @@ const DemoController = (() => {
           <div id="demo-step-label">STEP <span id="demo-step-num">1</span> / ${TOTAL_STEPS}</div>
           <div id="demo-dots">${Array.from({length: TOTAL_STEPS}, (_, i) =>
             `<div class="demo-dot" data-step="${i}"></div>`).join('')}</div>
+          <label id="demo-gnn-toggle" title="GNN adds graph-topology signal but takes 20-60s">
+            <input type="checkbox" id="demo-gnn-check"> GNN
+          </label>
           <button id="demo-close" title="Exit demo">✕</button>
         </div>
         <div id="demo-title"></div>
@@ -362,6 +457,9 @@ const DemoController = (() => {
     document.getElementById('demo-close').addEventListener('click', stopDemo);
     document.getElementById('demo-prev').addEventListener('click', () => _gotoStep(_step - 1));
     document.getElementById('demo-next').addEventListener('click', () => _gotoStep(_step + 1));
+    document.getElementById('demo-gnn-check').addEventListener('change', e => {
+      _useGnn = e.target.checked;
+    });
     document.querySelectorAll('.demo-dot').forEach(d => {
       d.addEventListener('click', () => _gotoStep(parseInt(d.dataset.step, 10)));
     });
@@ -375,7 +473,8 @@ const DemoController = (() => {
     const prev = document.getElementById('demo-prev');
     const next = document.getElementById('demo-next');
     prev.disabled = (i <= 0);
-    next.disabled = (i >= TOTAL_STEPS - 1) || (!_ready && i >= 0);
+    // Steps 0 and 1 don't need analysis data — only block NEXT from step 2 onwards
+    next.disabled = (i >= TOTAL_STEPS - 1) || (!_ready && i >= 2);
 
     document.querySelectorAll('.demo-dot').forEach((d, idx) => {
       d.classList.toggle('active', idx === i);
@@ -395,5 +494,5 @@ const DemoController = (() => {
     el.textContent   = msg ? `Error: ${msg}` : '';
   }
 
-  return { init, startDemo, stopDemo };
+  return { init, startDemo, stopDemo, setTopology };
 })();

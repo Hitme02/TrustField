@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrustField — System Console</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0a0a0f;
+      --bg2:     #0d0d18;
+      --bg3:     #111120;
+      --border:  #1e1e32;
+      --border2: #2a2a44;
+      --text:    #d0d0e8;
+      --dim:     #6a6a88;
+      --dimmer:  #3a3a55;
+      --cyan:    #00d4ff;
+      --green:   #34c759;
+      --red:     #ff3b30;
+      --amber:   #ff9500;
+      --mono:    'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    #sys-header {
+      height: 48px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    #sys-wordmark { font-size: 11px; letter-spacing: 0.12em; color: var(--cyan); font-weight: 700; margin-right: 4px; }
+    #sys-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dimmer); transition: background 0.4s; }
+    #sys-status-text { font-size: 10px; color: var(--dim); }
+    .spacer { flex: 1; }
+
+    .hbtn {
+      background: transparent;
+      border: 1px solid var(--border2);
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      padding: 5px 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .hbtn:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+    .hbtn:disabled { opacity: 0.3; cursor: default; }
+    .hbtn.ok    { border-color: var(--green); color: var(--green); }
+    .hbtn.ok:hover:not(:disabled) { border-color: var(--green); color: var(--green); opacity: 0.8; }
+    .hbtn.danger:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+    .hbtn.attacking { border-color: var(--red) !important; color: var(--red) !important; animation: pulse-border 1.4s ease-in-out infinite; }
+
+    @keyframes pulse-border {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.5; }
+    }
+
+    /* ── Node grid ──────────────────────────────────────────────── */
+    #grid-scroll { flex: 1; overflow-y: auto; padding: 14px 14px 140px; }
+    #node-grid   {
+      display: flex; flex-wrap: wrap; gap: 12px;
+      align-items: flex-start; /* each panel is its natural height — no row-stretching */
+    }
+
+    .node-panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      width: 260px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;         /* clip any overflowing content */
+      transition: border-color 0.3s;
+    }
+    .node-panel.compromised { border-color: var(--red); box-shadow: 0 0 8px rgba(255,59,48,0.15); }
+    .node-panel.guarded     { border-color: var(--green); }
+
+    .panel-head {
+      padding: 7px 11px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px;
+      min-width: 0; overflow: hidden;
+    }
+    /* Truncate long node IDs so panel-head stays single-line */
+    .panel-id {
+      font-size: 11px; color: var(--text); font-weight: 700;
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .panel-badge { font-size: 9px; padding: 1px 5px; border: 1px solid var(--border2); color: var(--dim); flex-shrink: 0; }
+    .panel-priv  { font-size: 9px; color: var(--dimmer); flex-shrink: 0; }
+
+    .panel-log {
+      flex: 1; min-height: 90px; max-height: 120px; overflow-y: auto;
+      padding: 5px 10px; font-size: 10px; line-height: 1.75;
+    }
+    .panel-log::-webkit-scrollbar { width: 3px; }
+    .panel-log::-webkit-scrollbar-thumb { background: var(--border2); }
+
+    .plog            { display: flex; gap: 6px; }
+    .plog.out-ok     { color: var(--cyan); }
+    .plog.out-block  { color: var(--red); font-weight: 600; }
+    .plog.out-attack { color: var(--amber); }
+    .plog.in-ok      { color: var(--dimmer); }
+    .plog.manual     { font-weight: 700; }
+
+    /* Pin the ping row so it is always visible at the bottom of every panel */
+    .panel-ping {
+      border-top: 1px solid var(--border);
+      padding: 6px 8px;
+      display: flex; gap: 6px; align-items: center;
+      flex-shrink: 0;           /* never compress this row */
+    }
+    .panel-ping select {
+      flex: 1; min-width: 0;
+      background: var(--bg); border: 1px solid var(--border2); color: var(--dim);
+      font-family: var(--mono); font-size: 10px; padding: 3px 5px; outline: none;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .ping-btn {
+      background: transparent; border: 1px solid var(--border2); color: var(--dim);
+      font-family: var(--mono); font-size: 10px; padding: 3px 8px; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+    }
+    .ping-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+
+    /* ── Activity log ────────────────────────────────────────────── */
+    #activity-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 120px;
+      background: var(--bg2); border-top: 1px solid var(--border);
+      display: flex; flex-direction: column; z-index: 10;
+    }
+    #activity-bar-head {
+      padding: 4px 14px; border-bottom: 1px solid var(--border);
+      display: flex; gap: 18px; align-items: center;
+      font-size: 10px; color: var(--dimmer); flex-shrink: 0;
+    }
+    #activity-bar-head .hi { color: var(--text); }
+    #cnt-blocked { color: var(--red); }
+    #activity-feed { flex: 1; overflow-y: auto; padding: 3px 14px; font-size: 10px; line-height: 1.8; }
+    #activity-feed::-webkit-scrollbar { width: 3px; }
+    #activity-feed::-webkit-scrollbar-thumb { background: var(--border2); }
+    .feed-row { display: flex; gap: 10px; }
+    .feed-ts   { color: var(--dimmer); min-width: 60px; }
+    .feed-row.ok     .feed-msg { color: var(--cyan); }
+    .feed-row.block  .feed-msg { color: var(--red); }
+    .feed-row.attack .feed-msg { color: var(--amber); }
+    .feed-row.sys    .feed-msg { color: var(--green); }
+    .feed-row.manual .feed-msg { font-weight: 700; }
+
+    /* ── Attack selection modal ──────────────────────────────────── */
+    #attack-modal {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(5, 5, 12, 0.82);
+      align-items: center; justify-content: center;
+      z-index: 50;
+    }
+    #attack-modal.open { display: flex; }
+
+    #attack-modal-box {
+      background: var(--bg2);
+      border: 1px solid var(--red);
+      width: min(760px, 94vw);
+      max-height: 78vh;
+      display: flex; flex-direction: column;
+      box-shadow: 0 0 40px rgba(255,59,48,0.12);
+    }
+
+    #attack-modal-head {
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      font-size: 11px; color: var(--red); letter-spacing: 0.1em;
+    }
+    #attack-modal-head .sub { color: var(--dim); font-size: 10px; letter-spacing: 0; margin-left: 4px; }
+    #attack-modal-close {
+      margin-left: auto; background: none; border: none;
+      color: var(--dim); cursor: pointer; font-size: 14px; line-height: 1;
+    }
+    #attack-modal-close:hover { color: var(--text); }
+
+    #attack-node-grid {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      padding: 14px; overflow-y: auto; flex: 1;
+    }
+
+    .attack-card {
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      padding: 11px 13px;
+      width: 168px; cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .attack-card:hover { border-color: rgba(255,59,48,0.5); }
+    .attack-card.selected {
+      border-color: var(--red);
+      background: rgba(255, 59, 48, 0.08);
+    }
+    .ac-id   { font-size: 11px; color: var(--text); font-weight: 700; margin-bottom: 5px; word-break: break-all; }
+    .ac-type { font-size: 9px; color: var(--dim); }
+    .ac-priv { font-size: 9px; color: var(--dimmer); margin-top: 3px; }
+
+    #attack-modal-foot {
+      border-top: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex; align-items: center; gap: 14px;
+    }
+    #attack-selected-label { font-size: 10px; color: var(--dim); flex: 1; }
+    #attack-confirm-btn {
+      background: transparent; border: 1px solid var(--red); color: var(--red);
+      font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+      padding: 6px 18px; cursor: pointer; transition: all 0.15s;
+    }
+    #attack-confirm-btn:disabled { opacity: 0.3; cursor: default; }
+    #attack-confirm-btn:not(:disabled):hover { background: rgba(255,59,48,0.1); }
+  </style>
+</head>
+<body>
+
+  <div id="sys-header">
+    <div id="sys-wordmark">TRUSTFIELD / SYSTEM CONSOLE</div>
+    <div id="sys-live-dot"></div>
+    <div id="sys-status-text">not started</div>
+    <div class="spacer"></div>
+    <button class="hbtn ok"     id="btn-start"  onclick="SC.start()">START SERVICES</button>
+    <button class="hbtn danger" id="btn-attack"  onclick="SC.openAttackModal()" disabled>ATTACK NODE</button>
+    <button class="hbtn"        id="btn-reset"   onclick="SC.reset()" disabled>RESET</button>
+  </div>
+
+  <div id="grid-scroll">
+    <div id="node-grid"></div>
+  </div>
+
+  <div id="activity-bar">
+    <div id="activity-bar-head">
+      <span>ACTIVITY LOG</span>
+      <span>pings: <span class="hi" id="cnt-pings">0</span></span>
+      <span id="cnt-blocked">blocked: 0</span>
+      <span style="margin-left:auto" id="guard-status"></span>
+    </div>
+    <div id="activity-feed"></div>
+  </div>
+
+  <!-- Attack selection modal -->
+  <div id="attack-modal">
+    <div id="attack-modal-box">
+      <div id="attack-modal-head">
+        ⚡ SELECT SERVICE TO COMPROMISE
+        <span class="sub">— click a node to mark it as the attacker's initial foothold</span>
+        <button id="attack-modal-close" onclick="SC.closeAttackModal()">✕</button>
+      </div>
+      <div id="attack-node-grid"><!-- populated by JS --></div>
+      <div id="attack-modal-foot">
+        <span id="attack-selected-label">No service selected</span>
+        <button id="attack-confirm-btn" disabled onclick="SC.confirmAttack()">LAUNCH ATTACK</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/components/system.js"></script>
+</body>
+</html>

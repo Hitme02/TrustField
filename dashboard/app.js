@@ -2,16 +2,14 @@
 
 const App = (() => {
 
-  // SIM is always last; synthetic topologies are loaded dynamically
-  const SYNTHETIC_TOPOLOGIES = ['hub', 'chain', 'dense_cluster', 'mixed'];
-  const TAB_LABELS = {
-    hub: 'HUB', chain: 'CHAIN', dense_cluster: 'DENSE', mixed: 'MIXED', sim: 'SIM ●',
-  };
-  const API_BASE = '';   // same origin; server.py handles routing
+  const TAB_LABELS = { org: 'ORG', register: 'REGISTER NEW ORG' };
+  const API_BASE = '';
 
-  let _currentTopo = 'hub';
+  let _currentTopo = 'org';
   let _graphData   = null;
   let _running     = false;
+  let _mockFeed    = null;   // EventSource for live mock-cloud pings
+  let _mockActive  = false;  // true only after START SERVICES is clicked on /system
 
   // ── Bootstrap ─────────────────────────────────────────────────────────
   function init() {
@@ -32,39 +30,107 @@ const App = (() => {
     // Wire demo controller
     DemoController.init();
 
-    _loadTopology('hub');
+    // Wire ORG upload panel
+    OrgUpload.init(() => {
+      _currentTopo = 'org';
+      _setActiveTab('org');
+      _updateSimMode(false, true);
+      if (_mockActive) {
+        // Services already running — load the freshly registered org graph
+        _loadTopology('org');
+      } else {
+        // Services not started yet — stay on the registration screen
+        _setStatus('idle', 'Org registered · go to /system → START SERVICES to activate the graph');
+      }
+    });
+
+    Inspector.setTopology('org');
+    DemoController.setTopology('org');
+    _updateSimMode(false, true);
+
+    // Start blank — graph only appears once services are live on /system
+    OrgUpload.showUploadPanel();
+    _startMockFeed();
+  }
+
+  // ── Mock-cloud live feed ──────────────────────────────────────────────
+  function _startMockFeed() {
+    if (_mockFeed) return;
+
+    // If services are already running (e.g. page reloaded after START SERVICES),
+    // activate immediately instead of waiting for the missed services_started event.
+    fetch('/api/mock/status').then(r => r.json()).then(s => {
+      if (s.running && !_mockActive) {
+        _mockActive = true;
+        _loadTopology('org');
+      }
+    }).catch(() => {});
+
+    _mockFeed = new EventSource('/api/mock/events');
+
+    // START SERVICES clicked on /system — load the graph and begin showing traffic
+    _mockFeed.addEventListener('services_started', () => {
+      _mockActive = true;
+      _loadTopology('org');
+    });
+
+    // Only pulse the graph when services are actually running
+    _mockFeed.addEventListener('ping', e => {
+      if (!_mockActive) return;
+      const d = JSON.parse(e.data);
+      if (d.status === 'blocked') {
+        // Blocked by guard — edge goes silent (no pulse = containment holding)
+        return;
+      } else if (d.attack) {
+        Graph3D.pulseEdge(d.from, d.to, 0xff9500, 500);
+      } else {
+        Graph3D.pulseEdge(d.from, d.to, 0x00d4ff, 350);
+      }
+    });
+
+    _mockFeed.addEventListener('attack_started', async e => {
+      _mockActive = true;
+      const d = JSON.parse(e.data);
+      Graph3D.setNodeState(d.node, 'compromised');
+      Graph3D.pulseNode(d.node);
+      await fetch('/api/org/seed', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ node_id: d.node }),
+      }).catch(() => {});
+      DemoController.startDemo(d.node);
+    });
+
+    _mockFeed.addEventListener('guards_deployed', e => {
+      const d = JSON.parse(e.data);
+      (d.blocked || []).forEach(([from, to]) => {
+        Graph3D.setEdgeColor(from, to, 0x1e3b2e, 0.35);
+      });
+    });
+
+    // Reset: services stopped — go back to blank registration screen
+    _mockFeed.addEventListener('reset', () => {
+      _mockActive = false;
+      DemoController.stopDemo();
+      Graph3D.loadGraph({ nodes: [], edges: [], metadata: {} });
+      OrgUpload.showUploadPanel();
+    });
+
+    _mockFeed.onerror = () => {};
   }
 
   // ── Tabs ───────────────────────────────────────────────────────────────
   function _buildTabs() {
     const container = document.getElementById('topo-tabs');
-
-    // Fetch available topologies and build tabs dynamically
-    fetch(`${API_BASE}/api/topologies`)
-      .then(r => r.json())
-      .then(d => {
-        const topos = d.topologies || ['hub', 'sim'];
-        container.innerHTML = '';
-        topos.forEach(topo => {
-          const btn = document.createElement('button');
-          btn.className  = 'topo-tab' + (topo === _currentTopo ? ' active' : '');
-          btn.textContent = TAB_LABELS[topo] || topo.toUpperCase();
-          btn.dataset.topo = topo;
-          btn.addEventListener('click', () => _switchTopology(topo));
-          container.appendChild(btn);
-        });
-      })
-      .catch(() => {
-        // Fallback — build static tabs
-        ['hub', 'sim'].forEach(topo => {
-          const btn = document.createElement('button');
-          btn.className  = 'topo-tab' + (topo === 'hub' ? ' active' : '');
-          btn.textContent = TAB_LABELS[topo] || topo.toUpperCase();
-          btn.dataset.topo = topo;
-          btn.addEventListener('click', () => _switchTopology(topo));
-          container.appendChild(btn);
-        });
-      });
+    container.innerHTML = '';
+    ['org', 'register'].forEach(topo => {
+      const btn = document.createElement('button');
+      btn.className   = 'topo-tab' + (topo === _currentTopo ? ' active' : '');
+      btn.textContent = TAB_LABELS[topo];
+      btn.dataset.topo = topo;
+      btn.addEventListener('click', () => _switchTopology(topo));
+      container.appendChild(btn);
+    });
   }
 
   function _setActiveTab(topo) {
@@ -120,31 +186,40 @@ const App = (() => {
 
   // ── Topology switching ─────────────────────────────────────────────────
   function _switchTopology(topo) {
-    if (topo === _currentTopo && _graphData) return;
     _currentTopo = topo;
     _setActiveTab(topo);
-    Inspector.setTopology(topo);
 
-    // Show/hide controls depending on mode
-    _updateSimMode(topo === 'sim');
+    if (topo === 'register') {
+      _updateSimMode(false, false);
+      OrgUpload.showUploadPanel();
+      return;
+    }
+
+    // ORG tab — only show graph if services are live; otherwise keep registration screen
+    Inspector.setTopology('org');
+    DemoController.setTopology('org');
+    _updateSimMode(false, true);
+
+    if (!_mockActive) {
+      OrgUpload.showUploadPanel();
+      return;
+    }
 
     const overlay = document.getElementById('graph-overlay');
     overlay.classList.add('fading');
     setTimeout(() => {
-      _loadTopology(topo);
+      _loadTopology('org');
       setTimeout(() => overlay.classList.remove('fading'), 80);
     }, 300);
   }
 
-  function _updateSimMode(isSim) {
-    // INFRA button only makes sense on SIM tab
+  function _updateSimMode(isSim, isOrg) {
     const infraBtn    = document.getElementById('admin-toggle-btn');
-    const nodeCountWrap = document.getElementById('node-count-wrap');
-    if (infraBtn)      infraBtn.classList.toggle('visible', isSim);
-    if (nodeCountWrap) nodeCountWrap.style.display = isSim ? 'none' : 'flex';
-
-    // Close admin panel when leaving SIM tab
-    if (!isSim) Admin.close();
+    const orgClearBtn = document.getElementById('org-clear-btn');
+    if (infraBtn)    infraBtn.classList.remove('visible');
+    if (orgClearBtn) orgClearBtn.classList.toggle('visible', !!isOrg);
+    Admin.close();
+    if (!isOrg) OrgUpload.hideUploadPanel();
   }
 
   // ── Fetch graph data from API ─────────────────────────────────────────
@@ -155,17 +230,21 @@ const App = (() => {
     _setStatus('loading', `Loading ${topo}…`);
 
     try {
-      const endpoint = topo === 'sim'
-        ? `${API_BASE}/api/graph/sim`
-        : `${API_BASE}/api/graph/${topo}`;
-
-      const res = await fetch(endpoint);
+      const res = await fetch(`${API_BASE}/api/graph/${topo}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        // ORG tab: no data yet → show upload panel instead of error
+        if (topo === 'org' && err.needs_upload) {
+          OrgUpload.showUploadPanel();
+          _setStatus('idle');
+          return;
+        }
         throw new Error(err.error || `HTTP ${res.status}`);
       }
+      OrgUpload.hideUploadPanel();
       const data = await res.json();
-      _onDataLoaded(data);
+      // Always render clean — analysis state is driven by demo steps / mock-cloud events only
+      _onDataLoaded(_cleanForDisplay(data));
       _setStatus('idle');
     } catch (e) {
       _setStatus('error', `Failed: ${e.message}`);
@@ -186,17 +265,18 @@ const App = (() => {
     _runViaFetch(`${API_BASE}/api/run/${topo}`, { num_nodes: numNodes, seed: 42 });
   }
 
-  // ── Run pipeline (SIM topology) ───────────────────────────────────────
+  // ── Run pipeline (SIM / ORG topology) ────────────────────────────────
   function _runSimPipeline() {
     if (_running) return;
     _running = true;
     _setRunBtn(true);
-    _setStatus('running', 'Running sim pipeline…');
+    const endpoint = _currentTopo === 'org' ? '/api/org/run' : '/api/sim/run';
+    _setStatus('running', `Running ${_currentTopo} pipeline…`);
 
     const log = document.getElementById('terminal-log');
     if (log) log.innerHTML = '';
 
-    _runViaFetch(`${API_BASE}/api/sim/run`, {});
+    _runViaFetch(`${API_BASE}${endpoint}`, {});
   }
 
   // ── Breach simulation ─────────────────────────────────────────────────
@@ -210,7 +290,10 @@ const App = (() => {
     if (log) log.innerHTML = '';
 
     _appendLog(`⚡ Simulating breach from node: ${nodeId}`, 'log-blocked');
-    _runViaFetch(`${API_BASE}/api/sim/breach/${encodeURIComponent(nodeId)}`, {});
+    const endpoint = _currentTopo === 'org'
+      ? `/api/org/breach/${encodeURIComponent(nodeId)}`
+      : `/api/sim/breach/${encodeURIComponent(nodeId)}`;
+    _runViaFetch(`${API_BASE}${endpoint}`, {});
   }
 
   // ── Shared fetch+SSE runner ────────────────────────────────────────────
@@ -277,6 +360,15 @@ const App = (() => {
     } else if (event === 'done') {
       _appendLog(`Pipeline complete — ${payload.topology}`, 'log-allowed');
       _setStatus('idle');
+      // Push guard state to mock cloud if it's running
+      const bt = payload.data?.metadata?.blocked_transitions;
+      if (bt?.length) {
+        fetch('/api/mock/guards', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ blocked_transitions: bt }),
+        }).catch(() => {});
+      }
       if (payload.data) {
         const overlay = document.getElementById('graph-overlay');
         overlay.classList.add('fading');
@@ -287,12 +379,26 @@ const App = (() => {
       } else {
         _loadTopology(_currentTopo);
       }
-      // Refresh admin panel state after analysis
+      // Refresh admin panel state after analysis (sim only)
       if (_currentTopo === 'sim') Admin.refresh();
     } else if (event === 'error') {
       _appendLog(`ERROR: ${payload.msg}`, 'log-blocked');
       _setStatus('error', payload.msg);
     }
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+
+  /** Strip all analysis overlays so the graph renders as plain safe infrastructure. */
+  function _cleanForDisplay(data) {
+    const d = JSON.parse(JSON.stringify(data));
+    d.nodes.forEach(n => { n.state = 'safe'; n.risk = 0; n.exploitability = 0; });
+    d.metadata = Object.assign(d.metadata || {}, {
+      traversal_timeline: [], guard_events: [], blocked_transitions: [],
+      seed_nodes: [], pbr_nodes: [], vbr_nodes: [], contained_nodes: [],
+      pbr_size: 0, vbr_size: 0, exploitability_gap_score: 0,
+    });
+    return d;
   }
 
   // ── Data display ────────────────────────────────────────────────────────
@@ -361,7 +467,12 @@ const App = (() => {
     setInterval(tick, 10000);
   }
 
-  return { init };
+  // Called by DemoController to keep the sidebar in sync with demo step data
+  function updateDisplay(data) {
+    if (data) _onDataLoaded(data);
+  }
+
+  return { init, updateDisplay };
 })();
 
 window.addEventListener('DOMContentLoaded', () => App.init());

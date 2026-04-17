@@ -22,9 +22,12 @@ from __future__ import annotations
 import copy
 import json
 import pathlib
+import queue
 import threading
 import time
-from typing import Iterator
+from typing import Iterator, Optional
+
+from trustfield.mock_cloud import mock_cloud
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
@@ -32,11 +35,12 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 # Paths
 # ---------------------------------------------------------------------------
 
-ROOT       = pathlib.Path(__file__).parent
-DASHBOARD  = ROOT / "dashboard"
-OUT_DIR    = ROOT / "out"
-STATE_DIR  = ROOT / "state"
-STATE_FILE = STATE_DIR / "sim_graph.json"
+ROOT          = pathlib.Path(__file__).parent
+DASHBOARD     = ROOT / "dashboard"
+OUT_DIR       = ROOT / "out"
+STATE_DIR     = ROOT / "state"
+STATE_FILE    = STATE_DIR / "sim_graph.json"
+ORG_STATE_FILE = STATE_DIR / "org_graph.json"
 
 app = Flask(__name__, static_folder=str(DASHBOARD), static_url_path="/static")
 
@@ -50,7 +54,9 @@ def index():
 
 @app.route("/static/<path:filename>")
 def static_files(filename):
-    return send_from_directory(str(DASHBOARD), filename)
+    resp = send_from_directory(str(DASHBOARD), filename)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 # ---------------------------------------------------------------------------
 # Simulated infrastructure — default state
@@ -384,6 +390,8 @@ def api_topologies():
             available.append(topo)
     # sim is always available
     available.append("sim")
+    # org tab appears whenever an org graph has been uploaded
+    available.append("org")
     return jsonify({"topologies": available})
 
 # ---------------------------------------------------------------------------
@@ -401,6 +409,8 @@ def _parse_graph_js(path: pathlib.Path) -> dict:
 def api_graph(topology: str):
     if topology == "sim":
         return _api_sim_graph_view()
+    if topology == "org":
+        return _api_org_graph_view()
 
     js_path = OUT_DIR / topology / "graph_data.js"
     if not js_path.exists():
@@ -781,6 +791,409 @@ def api_sim_upload_iam():
 @app.route("/api/sim/reset", methods=["OPTIONS"])
 @app.route("/api/sim/upload-iam", methods=["OPTIONS"])
 def _options_handler():
+    return "", 204
+
+# ---------------------------------------------------------------------------
+# ORG topology — real IAM data upload + analysis
+# ---------------------------------------------------------------------------
+
+_org_lock = threading.Lock()
+
+
+def _load_org_state() -> Optional[dict]:
+    with _org_lock:
+        if ORG_STATE_FILE.exists():
+            return json.loads(ORG_STATE_FILE.read_text(encoding="utf-8"))
+        return None
+
+
+def _save_org_state(state: dict) -> None:
+    with _org_lock:
+        STATE_DIR.mkdir(exist_ok=True)
+        ORG_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def _invalidate_org_cache() -> None:
+    js_path = OUT_DIR / "org" / "graph_data.js"
+    try:
+        if js_path.exists():
+            js_path.unlink()
+    except OSError:
+        pass
+
+
+def _api_org_graph_view():
+    """Return org graph: post-analysis if available, preview if not, 404 if no data."""
+    js_path = OUT_DIR / "org" / "graph_data.js"
+    if js_path.exists():
+        try:
+            data = _parse_graph_js(js_path)
+            return jsonify(data)
+        except Exception:
+            pass
+    state = _load_org_state()
+    if state is None:
+        return jsonify({"error": "No org data. Upload an IAM dump first.", "needs_upload": True}), 404
+    return jsonify(_build_sim_preview(state))   # reuse sim preview builder (same schema)
+
+
+def _org_state_to_trust_graph(state: dict):
+    """Same as _state_to_trust_graph but reads from org state."""
+    return _state_to_trust_graph(state)   # schema is identical
+
+
+def _run_org_pipeline_stream(seed_nodes: list, use_gnn: bool = True) -> Iterator[str]:
+    """Run the full pipeline on the current org graph and yield SSE events."""
+
+    def _evt(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+    yield _evt("progress", {"step": "init", "msg": "Loading org IAM graph…"})
+
+    try:
+        from trustfield.pipeline import TrustFieldPipeline
+
+        state = _load_org_state()
+        if state is None or len(state["nodes"]) < 2:
+            yield _evt("error", {"msg": "No org data loaded. Upload an IAM dump first."})
+            return
+
+        yield _evt("progress", {
+            "step": "building",
+            "msg": f"Building graph — {len(state['nodes'])} nodes, {len(state['edges'])} edges…",
+        })
+
+        graph = _org_state_to_trust_graph(state)
+
+        node_ids = {n["node_id"] for n in state["nodes"]}
+        active_seeds = [s for s in seed_nodes if s in node_ids]
+        if not active_seeds:
+            sorted_nodes = sorted(state["nodes"], key=lambda n: n.get("privilege_level", 0.5))
+            active_seeds = [sorted_nodes[0]["node_id"]]
+
+        yield _evt("progress", {
+            "step": "fingerprint",
+            "msg": f"M1–M3: Analyzing from seed '{active_seeds[0]}'…",
+        })
+
+        pipeline = TrustFieldPipeline(
+            output_dir=str(OUT_DIR),
+            n_feedback_cycles=2,
+            random_seed=42,
+        )
+
+        result = pipeline.run(
+            graph,
+            seed_nodes=active_seeds,
+            topology_label="org",
+            export=True,
+            use_gnn=use_gnn,
+        )
+
+        m = result.metrics
+        yield _evt("progress", {
+            "step": "verification",
+            "msg": f"M4 — PBR={m['pbr_size']} VBR={m['vbr_size']} EGD={m['exploitability_gap_score']:.3f}",
+        })
+        yield _evt("progress", {
+            "step": "containment",
+            "msg": f"M5 — containment={m['containment_success_rate']:.1%} strictness={m['final_strictness']}",
+        })
+        yield _evt("progress", {"step": "export", "msg": "M6 — graph data written to out/org/"})
+
+        js_path = OUT_DIR / "org" / "graph_data.js"
+        data = _parse_graph_js(js_path)
+        yield _evt("done", {
+            "topology": "org",
+            "metrics": m,
+            "data": data,
+            "seed_nodes": active_seeds,
+        })
+
+    except Exception as exc:
+        import traceback
+        yield _evt("error", {"msg": str(exc), "trace": traceback.format_exc()})
+
+
+@app.route("/api/org/upload", methods=["POST"])
+def api_org_upload():
+    """Parse a real IAM dump and store it as the org graph.
+
+    Body: { "data": <parsed-json-dict>, "replace": bool }
+
+    Auto-detects format:
+        account_auth_dump  — aws iam get-account-authorization-details
+        policy_doc         — bare IAM policy {Version, Statement}
+        role_bundle        — TrustField role bundle {RoleName, TrustPolicy}
+        k8s_rbac           — Kubernetes RBAC
+    """
+    body    = request.get_json(silent=True) or {}
+    raw     = body.get("data")
+    replace = bool(body.get("replace", True))
+
+    if not raw or not isinstance(raw, dict):
+        return jsonify({"error": "'data' field must be a JSON object"}), 400
+
+    try:
+        from trustfield.loaders.account_auth_loader import (
+            AccountAuthorizationLoader, detect_iam_format,
+        )
+        from trustfield.loaders.aws_iam_loader import IAMPolicyLoader
+
+        fmt = detect_iam_format(raw)
+
+        if fmt == "account_auth_dump":
+            loader = AccountAuthorizationLoader()
+            graph  = loader.load_dict(raw)
+        elif fmt in ("policy_doc", "mamip_policy", "role_bundle"):
+            loader = IAMPolicyLoader()
+            graph  = loader.load_dict(raw)
+        elif fmt == "k8s_rbac":
+            from trustfield.loaders.k8s_rbac_loader import K8sRBACLoader
+            loader = K8sRBACLoader()
+            graph  = loader.load_dict(raw)
+        else:
+            return jsonify({
+                "error": f"Unrecognised format. Expected one of: account_auth_dump, policy_doc, role_bundle, k8s_rbac. Got: '{fmt}'"
+            }), 400
+
+        if graph._graph.number_of_nodes() == 0:
+            return jsonify({"error": "No nodes found in the uploaded data. Check the format."}), 400
+
+        # Build org state
+        existing_state = {} if replace else (_load_org_state() or {})
+        existing_nodes = {n["node_id"] for n in existing_state.get("nodes", [])}
+        existing_edges = {(e["source"], e["target"]) for e in existing_state.get("edges", [])}
+
+        nodes = list(existing_state.get("nodes", []))
+        edges = list(existing_state.get("edges", []))
+        added_nodes = added_edges = 0
+
+        for node_id, data in graph._graph.nodes(data=True):
+            if node_id in existing_nodes:
+                continue
+            meta     = data["metadata"]
+            sim_type = meta.node_type.value
+            if sim_type not in VALID_NODE_TYPES:
+                sim_type = "SERVICE"
+            nodes.append({
+                "node_id":         node_id,
+                "node_type":       sim_type,
+                "name":            meta.name or node_id,
+                "privilege_level": round(max(0.0, min(1.0, meta.privilege_level)), 2),
+                "sensitivity":     round(max(0.0, min(1.0, meta.sensitivity)),     2),
+            })
+            existing_nodes.add(node_id)
+            added_nodes += 1
+
+        for src, tgt, data in graph._graph.edges(data=True):
+            if (src, tgt) in existing_edges:
+                continue
+            if src not in existing_nodes or tgt not in existing_nodes:
+                continue
+            meta      = data["metadata"]
+            edge_type = meta.edge_type.value
+            if edge_type not in VALID_EDGE_TYPES:
+                edge_type = "ASSUME_ROLE"
+            edges.append({
+                "source":    src,
+                "target":    tgt,
+                "edge_type": edge_type,
+                "weight":    round(max(0.0, min(1.0, meta.weight)), 2),
+            })
+            existing_edges.add((src, tgt))
+            added_edges += 1
+
+        state = {"nodes": nodes, "edges": edges, "breach_seed": None}
+        _save_org_state(state)
+        _invalidate_org_cache()
+
+        return jsonify({
+            "ok":          True,
+            "format":      fmt,
+            "added_nodes": added_nodes,
+            "added_edges": added_edges,
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+        })
+
+    except Exception as exc:
+        import traceback
+        return jsonify({"error": str(exc), "trace": traceback.format_exc()}), 500
+
+
+@app.route("/api/org/clear", methods=["POST"])
+def api_org_clear():
+    """Delete the org graph state and cached analysis."""
+    if ORG_STATE_FILE.exists():
+        ORG_STATE_FILE.unlink()
+    _invalidate_org_cache()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/org/run", methods=["POST"])
+def api_org_run():
+    state = _load_org_state()
+    if state is None:
+        return jsonify({"error": "No org data loaded"}), 404
+    seeds = [state["breach_seed"]] if state.get("breach_seed") else []
+    body = request.get_json(silent=True) or {}
+    use_gnn = bool(body.get("use_gnn", True))
+    return Response(
+        _run_org_pipeline_stream(seeds, use_gnn=use_gnn),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                 "Access-Control-Allow-Origin": "*"},
+    )
+
+
+@app.route("/api/org/breach/<path:node_id>", methods=["POST"])
+def api_org_breach(node_id: str):
+    state = _load_org_state()
+    if state is None:
+        return jsonify({"error": "No org data loaded"}), 404
+    node_ids = {n["node_id"] for n in state["nodes"]}
+    if node_id not in node_ids:
+        return jsonify({"error": f"Node '{node_id}' not found in org graph"}), 404
+    state["breach_seed"] = node_id
+    _save_org_state(state)
+    body = request.get_json(silent=True) or {}
+    use_gnn = bool(body.get("use_gnn", True))
+    return Response(
+        _run_org_pipeline_stream([node_id], use_gnn=use_gnn),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                 "Access-Control-Allow-Origin": "*"},
+    )
+
+
+@app.route("/api/org/seed", methods=["POST"])
+def api_org_set_seed():
+    """Set breach seed without running the pipeline. Invalidates analysis cache."""
+    body    = request.get_json(silent=True) or {}
+    node_id = str(body.get("node_id", "")).strip()
+    state   = _load_org_state()
+    if state is None:
+        return jsonify({"error": "No org data loaded"}), 404
+    node_ids = {n["node_id"] for n in state["nodes"]}
+    if node_id and node_id not in node_ids:
+        return jsonify({"error": f"Node '{node_id}' not found"}), 404
+    state["breach_seed"] = node_id or None
+    _save_org_state(state)
+    _invalidate_org_cache()   # force demo to re-run pipeline with this seed
+    return jsonify({"ok": True})
+
+
+@app.route("/api/org/upload", methods=["OPTIONS"])
+@app.route("/api/org/run", methods=["OPTIONS"])
+@app.route("/api/org/clear", methods=["OPTIONS"])
+@app.route("/api/org/seed", methods=["OPTIONS"])
+@app.route("/api/org/breach/<path:node_id>", methods=["OPTIONS"])
+def _org_options_handler(**kwargs):
+    return "", 204
+
+# ---------------------------------------------------------------------------
+# System console page
+# ---------------------------------------------------------------------------
+
+@app.route("/system")
+def system_console():
+    resp = send_from_directory(str(DASHBOARD), "system.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+# ---------------------------------------------------------------------------
+# Mock cloud API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/mock/start", methods=["POST"])
+def api_mock_start():
+    state = _load_org_state() or _load_sim_state()
+    mock_cloud.load(state)
+    mock_cloud.start()
+    return jsonify({"ok": True, "status": mock_cloud.status()})
+
+
+@app.route("/api/mock/stop", methods=["POST"])
+def api_mock_stop():
+    mock_cloud.stop()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mock/attack", methods=["POST"])
+def api_mock_attack():
+    body    = request.get_json(silent=True) or {}
+    node_id = str(body.get("node_id", "")).strip()
+    if not node_id:
+        return jsonify({"error": "node_id required"}), 400
+    if not mock_cloud.trigger_attack(node_id):
+        return jsonify({"error": f"Node '{node_id}' not found. Running: {mock_cloud._running}, nodes: {list(mock_cloud.nodes.keys())}"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mock/ping", methods=["POST"])
+def api_mock_ping():
+    body   = request.get_json(silent=True) or {}
+    source = str(body.get("from", "")).strip()
+    target = str(body.get("to",   "")).strip()
+    if not source or not target:
+        return jsonify({"error": "from and to are required"}), 400
+    result = mock_cloud.manual_ping(source, target)
+    return jsonify(result)
+
+
+@app.route("/api/mock/guards", methods=["POST"])
+def api_mock_guards():
+    body    = request.get_json(silent=True) or {}
+    blocked = body.get("blocked_transitions", [])
+    mock_cloud.deploy_guards(blocked)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mock/reset", methods=["POST"])
+def api_mock_reset():
+    mock_cloud.reset()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mock/status")
+def api_mock_status():
+    return jsonify(mock_cloud.status())
+
+
+@app.route("/api/mock/events")
+def api_mock_events():
+    q = mock_cloud.subscribe()
+
+    def _stream():
+        try:
+            while True:
+                try:
+                    event = q.get(timeout=25)
+                    yield f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+                except queue.Empty:
+                    yield ": heartbeat\n\n"
+        except GeneratorExit:
+            mock_cloud.unsubscribe(q)
+
+    return Response(
+        _stream(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":              "no-cache",
+            "X-Accel-Buffering":          "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+@app.route("/api/mock/start",  methods=["OPTIONS"])
+@app.route("/api/mock/stop",   methods=["OPTIONS"])
+@app.route("/api/mock/attack", methods=["OPTIONS"])
+@app.route("/api/mock/ping",   methods=["OPTIONS"])
+@app.route("/api/mock/guards", methods=["OPTIONS"])
+@app.route("/api/mock/reset",  methods=["OPTIONS"])
+def _mock_options(**kwargs):
     return "", 204
 
 # ---------------------------------------------------------------------------

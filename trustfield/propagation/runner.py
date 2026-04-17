@@ -121,29 +121,24 @@ class PropagationRunner:
         self,
         graph: TrustGraph,
         seed_nodes: List[str],
+        use_gnn: bool = True,
         **model_kwargs,
     ) -> Dict[str, PropagationResult]:
-        """Run all five propagation models on the trust graph.
+        """Run propagation models on the trust graph.
 
         Args:
             graph: The trust graph to propagate through.
             seed_nodes: Initially compromised node IDs.
+            use_gnn: If False, skip the GNN model (much faster; default True).
             **model_kwargs: Per-model keyword arguments, keyed by model name.
-                For example::
-
-                    runner.run_all(
-                        graph, seed_nodes,
-                        epidemic={"beta": 0.4},
-                        percolation={"n_trials": 200},
-                    )
-
-                Any model not mentioned gets default kwargs.
 
         Returns:
             Dictionary mapping model name to its ``PropagationResult``.
         """
         results: Dict[str, PropagationResult] = {}
         for name, model in self._models.items():
+            if name == "gnn" and not use_gnn:
+                continue
             kwargs = model_kwargs.get(name, {})
             results[name] = model.run(graph, seed_nodes, **kwargs)
         return results

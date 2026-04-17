@@ -96,6 +96,7 @@ class ContainmentEngine:
         seed_nodes: List[str],
         verification_report: VerificationReport,
         n_feedback_cycles: int = 5,
+        use_gnn: bool = True,
     ) -> ContainmentResult:
         """Run the full containment pipeline and return metrics.
 
@@ -129,13 +130,27 @@ class ContainmentEngine:
         blast_edges: Set[tuple] = set(
             guard_net.get_high_risk_edges(bra, top_k=20)
         )
-        # CRITICAL: also guard every edge that was on a confirmed traversal path
+        # CRITICAL: guard every edge on a confirmed traversal path
         traversal_edges: Set[tuple] = {
             (step.from_node, step.to_node)
             for step in tr.traversal_steps
             if step.succeeded
         }
-        all_guard_edges = list(blast_edges | traversal_edges)
+        # Also guard ALL edges out of any VBR node — catches critical-miss paths
+        # the ensemble underestimated but IAM traversal confirmed reachable.
+        vbr_outgoing: Set[tuple] = set()
+        for node in original_vbr:
+            for src, tgt in graph._graph.out_edges(node):
+                vbr_outgoing.add((src, tgt))
+
+        all_guard_edges = list(blast_edges | traversal_edges | vbr_outgoing)
+
+        # Fallback: if the seed is a sink node (no outward reachability),
+        # block all incoming edges to the seed — isolate the compromised resource.
+        if not all_guard_edges:
+            for seed in seed_nodes:
+                for src, tgt in graph._graph.in_edges(seed):
+                    all_guard_edges.append((src, tgt))
 
         # --- Step 2: Deploy guards ---
         guard_net.deploy_guards(all_guard_edges, guards_per_edge=3)
@@ -143,7 +158,7 @@ class ContainmentEngine:
         # --- Step 3: Feedback loop (modifies working_graph weights) ---
         feedback = HardwareSoftwareFeedback(guard_net, self._orchestrator)
         actions = feedback.run_feedback_cycle(
-            working_graph, seed_nodes, n_cycles=n_feedback_cycles
+            working_graph, seed_nodes, n_cycles=n_feedback_cycles, use_gnn=use_gnn
         )
 
         # Determine final strictness

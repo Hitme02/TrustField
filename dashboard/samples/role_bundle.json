@@ -1,0 +1,47 @@
+{
+  "RoleName": "data-pipeline-role",
+  "RoleArn": "arn:aws:iam::123456789012:role/data-pipeline-role",
+  "TrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": { "Service": "glue.amazonaws.com" },
+        "Action": "sts:AssumeRole"
+      },
+      {
+        "Effect": "Allow",
+        "Principal": { "AWS": "arn:aws:iam::123456789012:role/infra-admin-role" },
+        "Action": "sts:AssumeRole"
+      }
+    ]
+  },
+  "PermissionPolicies": [
+    {
+      "PolicyName": "S3DataAccess",
+      "Document": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+            "Resource": [
+              "arn:aws:s3:::company-data-lake",
+              "arn:aws:s3:::company-data-lake/*"
+            ]
+          },
+          {
+            "Effect": "Allow",
+            "Action": ["kms:Decrypt", "kms:GenerateDataKey"],
+            "Resource": "arn:aws:kms:us-east-1:123456789012:key/mrk-data-lake-key"
+          },
+          {
+            "Effect": "Allow",
+            "Action": ["secretsmanager:GetSecretValue"],
+            "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:data/pipeline-credentials"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -21,7 +21,8 @@
       </div>
       <!-- INFRA button: opens the admin panel (only visible on SIM tab) -->
       <button id="admin-toggle-btn" title="Edit simulated infrastructure">INFRA</button>
-      <button id="demo-btn" title="Step-by-step demo presentation">DEMO</button>
+      <!-- CLEAR button: remove org graph (only visible on ORG tab) -->
+      <button id="org-clear-btn" title="Clear uploaded org data">CLEAR ORG</button>
       <div id="live-indicator">
         <div id="live-dot"></div>
         LIVE
@@ -35,6 +36,46 @@
     <canvas id="graph-canvas"></canvas>
     <div id="graph-overlay"></div>
     <div id="node-tooltip"></div>
+
+    <!-- ORG upload overlay (shown when no org data loaded) -->
+    <div id="org-upload-overlay">
+      <div id="org-upload-box">
+        <div class="org-upload-title">ORG — REAL IAM DATA</div>
+        <div class="org-upload-sub">Upload your AWS IAM account data to build a real trust graph</div>
+
+        <div id="org-drop-zone">
+          <div id="org-drop-zone-label">
+            Drop JSON file here &nbsp;·&nbsp; <span id="org-browse-link">Browse</span>
+          </div>
+          <input type="file" id="org-file-input" accept=".json,application/json">
+        </div>
+
+        <div id="org-format-badge">FORMAT DETECTED</div>
+
+        <div class="org-or-divider">— or paste JSON —</div>
+        <textarea id="org-paste-area" placeholder='{ "UserDetailList": [...], "RoleDetailList": [...] }'></textarea>
+
+        <div class="org-samples-label">TRY WITH SAMPLE DATA</div>
+
+        <div class="org-sample-row">
+          <span class="org-sample-name">Full account dump — UserDetailList + GroupDetailList + RoleDetailList</span>
+          <button class="org-sample-btn" data-url="/static/samples/account_dump.json">LOAD</button>
+        </div>
+        <div class="org-sample-row">
+          <span class="org-sample-name">Role bundle — TrustPolicy + PermissionPolicies</span>
+          <button class="org-sample-btn" data-url="/static/samples/role_bundle.json">LOAD</button>
+        </div>
+        <div class="org-sample-row">
+          <span class="org-sample-name">Bare IAM policy document — Statement array</span>
+          <button class="org-sample-btn" data-url="/static/samples/policy_doc.json">LOAD</button>
+        </div>
+
+        <div class="org-import-row">
+          <button id="org-import-btn">IMPORT</button>
+          <span id="org-import-status"></span>
+        </div>
+      </div>
+    </div>
     <!-- Legend -->
     <div id="graph-legend">
       <div class="legend-row"><div class="legend-dot" style="background:#ff3b30"></div><span>Compromised</span></div>
@@ -117,6 +158,7 @@
 <script src="/static/components/graph3d.js"></script>
 <script src="/static/components/admin.js"></script>
 <script src="/static/components/demo.js"></script>
+<script src="/static/components/org.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

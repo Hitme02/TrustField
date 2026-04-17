@@ -4,6 +4,10 @@
 
 ---
 
+##  Video Demo (Screen Recording)
+
+<video src="https://github.com/user-attachments/assets/83acc748-ef65-4142-9780-4f1423ea6ca0" width="100%"></video>
+
 ## What is TrustField?
 
 Modern cloud infrastructure — AWS IAM, Kubernetes RBAC, multi-tenant microservices — creates complex webs of trust relationships. A single misconfigured IAM role or overly-permissive policy attachment can give an attacker a path from a low-privilege user all the way to `AdministratorAccess`. These paths are often multi-hop, non-obvious, and invisible to tools that only look at individual policies in isolation.

@@ -116,6 +116,7 @@ class TrustFieldPipeline:
         seed_nodes: List[str],
         topology_label: str = "unknown",
         export: bool = True,
+        use_gnn: bool = True,
     ) -> PipelineResult:
         """Execute the full six-module pipeline on a single graph.
 
@@ -131,7 +132,7 @@ class TrustFieldPipeline:
         t0 = time.time()
 
         # --- M1-M3: Ensemble analysis ---
-        analysis = self._orchestrator.analyze(graph, seed_nodes=seed_nodes)
+        analysis = self._orchestrator.analyze(graph, seed_nodes=seed_nodes, use_gnn=use_gnn)
         pred = analysis.ensemble_prediction
 
         # --- M4: Verification ---
@@ -154,7 +155,7 @@ class TrustFieldPipeline:
         # --- M5: Containment ---
         engine = ContainmentEngine(self._orchestrator, token_generator=TokenGenerator())
         containment = engine.execute(
-            graph, seed_nodes, report, n_feedback_cycles=self._n_feedback_cycles
+            graph, seed_nodes, report, n_feedback_cycles=self._n_feedback_cycles, use_gnn=use_gnn
         )
 
         # --- M6: Export ---

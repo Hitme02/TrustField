@@ -1,7 +1,7 @@
 # TrustField — Project Context File
 
 > Auto-generated comprehensive context for LLM assistants, contributors, and reviewers.  
-> Last updated: 2026-04-02 (rev 3 — visual contrast fix: safe color, sim state redesign, in-canvas legend)
+> Last updated: 2026-04-17 (rev 4 — demo controller, ORG tab, account-auth loader, IAM upload, trust relationships UI)
 
 ---
 
@@ -69,7 +69,8 @@ TrustField/
 │   │   └── sensitivity_analysis.py
 │   ├── loaders/                 # Real-world config parsers
 │   │   ├── _common.py           # parse_arn(), action_to_edge_type(), privilege_from_aws_actions(), etc.
-│   │   ├── aws_iam_loader.py    # AWS IAM JSON → TrustGraph
+│   │   ├── aws_iam_loader.py    # AWS IAM JSON → TrustGraph (policy doc / MAMIP / role bundle)
+│   │   ├── account_auth_loader.py  # [NEW] aws iam get-account-authorization-details → TrustGraph
 │   │   ├── k8s_rbac_loader.py   # Kubernetes RBAC YAML → TrustGraph
 │   │   └── cloudgoat_loader.py  # Terraform HCL2 (CloudGoat) → TrustGraph + 28-scenario validator
 │   ├── visualization/           # Module 6 — Export & Layout Engines
@@ -111,21 +112,28 @@ TrustField/
 │   ├── demo_gnn.py              # GNN training and evaluation
 │   └── demo_real_world_extended.py  # Extended CloudGoat scenarios
 ├── dashboard/                   # Browser-based interactive dashboard
-│   ├── index.html               # Main UI (topbar, graph canvas, sidebar, timeline, terminal)
+│   ├── index.html               # Main UI (topbar, graph canvas, sidebar, timeline, terminal, org overlay)
 │   ├── app.js                   # State management, topology switching, SSE pipeline runner
-│   ├── style.css                # All styles including admin panel + breach button
+│   ├── style.css                # All styles (admin, demo overlay, org upload panel)
+│   ├── samples/                 # [NEW] Bundled sample IAM JSON files (served as static assets)
+│   │   ├── account_dump.json    # Full aws iam get-account-authorization-details format
+│   │   ├── role_bundle.json     # TrustField role bundle {RoleName, TrustPolicy, PermissionPolicies}
+│   │   └── policy_doc.json      # Bare IAM policy document {Version, Statement}
 │   └── components/
-│       ├── graph3d.js           # Three.js 3D visualization
-│       ├── inspector.js         # Node inspector + BREACH button (SIM mode only)
+│       ├── graph3d.js           # Three.js 3D visualization + setNodeState/setEdgeColor/pulseNode
+│       ├── inspector.js         # Node inspector + BREACH button (SIM/ORG tabs only)
 │       ├── metrics.js           # PBR/VBR/Gap/EGD metrics panel
 │       ├── timeline.js          # Attack path timeline
 │       ├── terminal.js          # Guard event log
-│       └── admin.js             # [NEW] Infrastructure editor panel (nodes + policies)
+│       ├── admin.js             # Infrastructure editor (nodes + trust relationships + IAM upload)
+│       ├── demo.js              # [NEW] Step-by-step 6-phase demo controller (PREV/NEXT)
+│       └── org.js               # [NEW] ORG tab upload panel (drag/drop, format detect, samples)
 ├── web/                         # Three.js 3D viewer (static assets, works from file://)
 │   ├── trustfield.js            # Three.js 3D graph visualization
 │   └── style.css
-├── state/                       # [NEW] Persistent simulated infrastructure state
-│   └── sim_graph.json           # Current sim node/edge definitions (auto-created on first run)
+├── state/                       # Persistent infrastructure state
+│   ├── sim_graph.json           # Simulated infrastructure (auto-created on first run)
+│   └── org_graph.json           # [NEW] Uploaded real IAM data (created after first ORG upload)
 ├── out/                         # Generated pipeline outputs (per topology)
 │   ├── hub/                     # Hub topology results
 │   ├── chain/                   # Chain topology results
@@ -278,26 +286,86 @@ Weights are further tuned adaptively via SQLite-backed F1 history in `WeightTrac
 
 | Loader | Source Format | Parses |
 |--------|-------------|--------|
-| `aws_iam_loader.py` | AWS IAM JSON | Inline/managed policies, trust policies |
+| `aws_iam_loader.py` | AWS IAM JSON | Bare policy doc, MAMIP wrapper, TrustField role bundle |
+| `account_auth_loader.py` | `aws iam get-account-authorization-details` | UserDetailList, GroupDetailList, RoleDetailList, Policies |
 | `k8s_rbac_loader.py` | K8s YAML | ClusterRole, Role, ClusterRoleBinding, RoleBinding |
 | `cloudgoat_loader.py` | Terraform HCL2 | aws_iam_user/role/policy, instance profiles, ECS task definitions |
 
 Common utilities (`loaders/_common.py`): `parse_arn()`, `action_to_edge_type()`, `privilege_from_aws_actions()`, `sensitivity_from_arn()`, `edge_weight_from_statement()`.
 
+### `account_auth_loader.py` — AccountAuthorizationLoader [NEW]
+
+Parses the full output of `aws iam get-account-authorization-details`. Input format:
+```json
+{
+  "UserDetailList":  [{ "UserName", "Arn", "GroupList", "UserPolicyList", "AttachedManagedPolicies" }],
+  "GroupDetailList": [{ "GroupName", "Arn", "GroupPolicyList", "AttachedManagedPolicies" }],
+  "RoleDetailList":  [{ "RoleName", "Arn", "AssumeRolePolicyDocument", "RolePolicyList", "AttachedManagedPolicies" }],
+  "Policies":        [{ "PolicyArn", "PolicyVersionList": [{ "Document", "IsDefaultVersion" }] }]
+}
+```
+
+Graph construction:
+- Each user → `USER` node; each group → `ROLE` node; each role → `ROLE` node
+- User ∈ Group → `AUTHENTICATE_AS` edge
+- Role trust doc → `ASSUME_ROLE` edges (principal → role)
+- Permission docs → typed edges (subject → resource)
+- Managed policy documents resolved from the `Policies` index by ARN
+
+### `detect_iam_format(data: dict) -> str` [NEW]
+
+Auto-detects which format a JSON dict is in. Returns one of:
+- `"account_auth_dump"` — has `UserDetailList` or `RoleDetailList`
+- `"policy_doc"` — has `Statement`
+- `"mamip_policy"` — has `PolicyVersion.Document`
+- `"role_bundle"` — has `RoleName` or `TrustPolicy`
+- `"k8s_rbac"` — has `apiVersion` + `kind`
+- `"terraform_plan"` — has `resource_changes` or `planned_values`
+- `"unknown"` — unrecognised
+
 ---
 
 ## 9. Flask Dashboard API (`server.py`)
 
+### Core routes
+
 | Method | Route | Description |
 |--------|-------|-------------|
 | GET | `/` | Serve `dashboard/index.html` |
-| GET | `/api/topologies` | List available topology names as JSON array |
-| GET | `/api/graph/<topology>` | Return pre-computed graph data (nodes, edges, metadata) |
-| POST | `/api/run/<topology>` | Run pipeline; streams SSE progress events then `done` event |
+| GET | `/api/topologies` | List available topology names (always includes `sim` and `org`) |
+| GET | `/api/graph/<topology>` | Return graph data (post-analysis if available, else preview) |
+| POST | `/api/run/<topology>` | Run pipeline on synthetic topology; streams SSE |
 
-SSE events from `POST /api/run/<topology>`:
-- `event: progress` → `{"step": "init|generating|fingerprint|...", "msg": "..."}`
-- `event: done` → `{"topology": "...", "metrics": {...}, "data": {...}}`
+### Simulated infrastructure routes (`/api/sim/*`)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/sim/state` | Raw sim state JSON (node/edge lists) |
+| POST | `/api/sim/node` | Add node `{node_id, node_type, name, privilege_level, sensitivity}` |
+| DELETE | `/api/sim/node/<id>` | Remove node and all its edges |
+| POST | `/api/sim/edge` | Add edge `{source, target, edge_type, weight}` |
+| DELETE | `/api/sim/edge` | Remove edge `{source, target}` |
+| POST | `/api/sim/reset` | Reset to default demo infrastructure |
+| POST | `/api/sim/run` | Run full pipeline on sim state (SSE) |
+| POST | `/api/sim/breach/<id>` | Set breach seed + run pipeline (SSE) |
+| POST | `/api/sim/upload-iam` | Merge IAM policy JSON into sim graph `{policy, subject_id, subject_arn, replace}` |
+
+### ORG topology routes (`/api/org/*`) [NEW]
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/org/upload` | Parse real IAM dump, store as org graph `{data, replace}` |
+| GET | `/api/graph/org` | Return org graph data; 404 with `{needs_upload: true}` if no data |
+| POST | `/api/org/run` | Run full pipeline on org graph (SSE) |
+| POST | `/api/org/breach/<id>` | Set breach seed + run pipeline on org graph (SSE) |
+| POST | `/api/org/clear` | Delete org graph state and cached analysis |
+
+`POST /api/org/upload` auto-detects format using `detect_iam_format()` and routes to the appropriate loader (`AccountAuthorizationLoader`, `IAMPolicyLoader`, or `K8sRBACLoader`).
+
+### SSE event format (all streaming endpoints)
+
+- `event: progress` → `{"step": "init|building|fingerprint|verification|containment|export", "msg": "..."}`
+- `event: done` → `{"topology": "...", "metrics": {...}, "data": {...}, "seed_nodes": [...]}`
 - `event: error` → `{"msg": "...", "trace": "..."}`
 
 Default: `http://127.0.0.1:5000`
@@ -455,9 +523,25 @@ No environment variables are required. Optional external resources:
 
 **ReportGenerator** (`trustfield/visualization/report_generator.py`): Produces `results_tables.tex` (LaTeX) and Markdown summary tables for publication.
 
+### `graph_exporter.py` — Metadata Fields Required by Dashboard
+
+`GraphExporter._build_metadata()` must emit these fields for the dashboard to function correctly:
+
+```python
+"pbr_nodes":           sorted(blast_radius.pbr_nodes),       # inspector PBR badge
+"vbr_nodes":           sorted(blast_radius.vbr_nodes),       # inspector VBR badge
+"contained_nodes":     sorted(containment_result.contained_nodes),  # graph3d green
+"blocked_transitions": [list(t) for t in containment_result.blocked_transitions],  # graph3d dimmed edges
+"guard_events":        [...],
+"traversal_timeline":  [...],   # demo controller depth-grouped animation
+"seed_nodes":          [...],   # demo controller breach step
+```
+
+If `containment_result` is `None` (no guards ran), emit empty lists for all four fields.
+
 ---
 
-## 21. Simulated Infrastructure System [NEW — 2026-04-02]
+## 21. Simulated Infrastructure System
 
 This feature replaces static file loaders and IAMSimulator for demo purposes with a **live, editable simulated infrastructure** that behaves like a real cloud environment.
 
@@ -513,27 +597,15 @@ user-dev (USER, priv=0.1)
 ```
 Story: developer account hacked → attacker walks 5 legitimate trust hops to master credentials.
 
-### New API Routes
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/sim/state` | Raw state JSON (for admin panel) |
-| GET | `/api/graph/sim` | Post-analysis data if available, else preview layout |
-| POST | `/api/sim/node` | Add a node `{node_id, node_type, name, privilege_level, sensitivity}` |
-| DELETE | `/api/sim/node/<id>` | Remove node + all its edges |
-| POST | `/api/sim/edge` | Add a trust relationship `{source, target, edge_type, weight}` |
-| DELETE | `/api/sim/edge` | Remove a trust relationship `{source, target}` |
-| POST | `/api/sim/reset` | Reset to default demo infrastructure |
-| POST | `/api/sim/run` | Run full pipeline on current state (SSE stream) |
-| POST | `/api/sim/breach/<id>` | Mark node as seed, run pipeline (SSE stream) |
-
 All mutation routes (`node`/`edge` POST/DELETE) automatically invalidate the cached `out/sim/graph_data.js` so the dashboard shows a preview until re-analyzed.
 
 ### Admin Panel (`dashboard/components/admin.js`)
 
 Slide-in drawer (340px wide, overlaps graph area, opens with INFRA button):
 - **NODES tab**: table of current nodes (type, id, name, priv/sens bars) + delete buttons + "Add Node" form
+  - **Trust Relationships sub-section**: while adding a node, click `+ ADD` to define edges to/from existing nodes. Each pending edge has direction (→ can access / ← accessed by), target node select, edge type, weight slider. Edges are batch-POSTed after the node is created.
 - **POLICIES tab**: table of current edges + delete buttons + "Add Policy" form
+- **UPLOAD IAM tab**: paste textarea + file picker; sends `POST /api/sim/upload-iam`; shows `+N nodes, +M edges` on success
 - **Policy-changed banner**: appears after any structural edit, prompts ANALYZE
 - **RESET button**: restores default demo state with confirmation
 
@@ -550,6 +622,124 @@ Slide-in drawer (340px wide, overlaps graph area, opens with INFRA button):
 
 | Trigger | How | Seed |
 |---------|-----|------|
-| Policy change (add/remove node or edge) | Shows "ANALYZE" banner; user clicks it or RUN | Auto: lowest-privilege node |
-| Manual RUN button on SIM tab | Button click | Last breach_seed, or auto |
+| Policy change (add/remove node or edge) | Shows "ANALYZE" banner; user clicks it or DEMO | Auto: lowest-privilege node |
+| Manual DEMO button on SIM tab | Click → 6-phase demo | Last breach_seed, or auto |
 | Breach simulation | Click node → BREACH button | That specific node |
+
+---
+
+## 22. Demo Controller (`dashboard/components/demo.js`) [NEW — 2026-04-17]
+
+A step-by-step presentation layer that replays pipeline results as 6 animated phases. Designed to tell the full attack story during project reviews.
+
+### 6 Phases
+
+| Step | Title | What Happens |
+|------|-------|-------------|
+| 0 | Your Cloud Infrastructure | Graph loads with all nodes safe (blue). Narration: node count, edge count. |
+| 1 | Breach Detected | Seed node pulses and turns red. Narration: node name and type. |
+| 2 | Attack Path Simulation | Traversal timeline replayed depth-by-depth (~700 ms/level). Compromised edges glow red. |
+| 3 | Ensemble Risk Analysis | Predicted-only (amber) and critical-miss (orange) nodes revealed. Narration: PBR vs VBR sizes, gap score. |
+| 4 | Deploying Cyber-Physical Guards | Contained nodes turn green. Blocked edges dimmed. Narration: block count, containment rate. |
+| 5 | Infrastructure Secured | Full final state rendered. Success/warning message. |
+
+### Key Implementation Details
+
+- **Cancel-token pattern**: `_cancel` integer incremented on every step change; all `setTimeout` callbacks check `if (_cancel !== tok) return` before executing. Makes PREV safe.
+- **PREV is always safe**: Each step's `_renderStep(i)` rebuilds from scratch (`_safeSnapshot()` + incremental mutations), so going backwards is just re-entering the same enter function.
+- **Depth-grouped animation**: `traversal_timeline` steps grouped by `depth` field; entire depth wave animates at `400 + depth * 700` ms to avoid very long animations on dense graphs.
+- **Background pipeline**: On `startDemo()`, pipeline runs via SSE in the background while infra step is shown. NEXT is disabled with a spinner until `done` event arrives.
+- **Topology-aware**: `DemoController.setTopology(topo)` switches between `/api/sim/run` and `/api/org/run`. Called by `app.js` whenever the active tab changes.
+
+### UI
+
+The demo overlay is a compact panel pinned to the bottom-right (`position: fixed; bottom: 176px; right: 288px; width: 300px`). Contains:
+- Step title (12px mono, cyan)
+- Narration text (11px, dim) — built dynamically from real pipeline data
+- PREV / NEXT buttons
+- Step counter (e.g. `2 / 6`)
+- Loading spinner while pipeline runs
+- Error message if pipeline fails
+
+### graph3d.js additions (required by demo)
+
+```javascript
+Graph3D.setNodeState(nodeId, state)   // change color + emissive intensity live
+Graph3D.setEdgeColor(fromId, toId, colorHex, opacity)  // recolor a specific edge
+Graph3D.pulseNode(nodeId)             // 500ms scale-pulse animation
+Graph3D.getGraphData()                // read current loaded graph data
+```
+
+`_edgeMap` (module-level dict `{from:to → Line object}`) enables O(1) edge lookup without rebuilding the scene.
+
+---
+
+## 23. ORG Tab — Real IAM Data Upload [NEW — 2026-04-17]
+
+Allows any organization to upload their real AWS IAM data and run the full TrustField analysis on it. The ORG tab mirrors the SIM tab but is driven by uploaded data rather than a manually-built simulated graph.
+
+### Flow
+
+```
+1. User clicks ORG tab
+2. GET /api/graph/org → 404 {needs_upload: true}
+   → Upload panel shown (full graph-area overlay)
+
+3. User drops/pastes JSON or clicks a sample LOAD button
+   → Client-side format detection badge appears instantly
+   → IMPORT button enabled
+
+4. POST /api/org/upload {data, replace: true}
+   → Server calls AccountAuthorizationLoader (or IAMPolicyLoader / K8sRBACLoader)
+   → Stores result in state/org_graph.json
+   → Returns {ok, format, added_nodes, added_edges, total_nodes, total_edges}
+
+5. Upload panel closes → GET /api/graph/org → preview layout rendered
+
+6. User clicks DEMO → DemoController runs /api/org/run (SSE)
+   OR clicks a node → BREACH → /api/org/breach/<id> (SSE)
+
+7. Full 6-module analysis renders — same visuals as SIM tab
+```
+
+### Upload Panel (`dashboard/components/org.js` + `#org-upload-overlay`)
+
+- **Drag/drop zone** or **Browse** button → reads file as text → populates paste area
+- **Paste textarea** — live format detection on every keystroke
+- **Format badge** — green `DETECTED: AWS ACCOUNT DUMP` or red `UNKNOWN FORMAT`
+- **3 sample buttons** — load bundled local samples (`/static/samples/*.json`) for immediate demo
+- **IMPORT button** — posts to `/api/org/upload`, shows `+N nodes · +M edges · format: account_auth_dump`
+- Automatically closes and loads the preview after ~900ms on success
+
+### Bundled Sample Files (`dashboard/samples/`)
+
+| File | Format | Contents |
+|------|--------|---------|
+| `account_dump.json` | `account_auth_dump` | 2 users, 1 group, 3 roles, 2 managed policies — full chain from dev user to admin role to secrets |
+| `role_bundle.json` | `role_bundle` | `data-pipeline-role` with Glue trust + S3/KMS/Secrets permissions |
+| `policy_doc.json` | `policy_doc` | Bare IAM policy: sts:AssumeRole + secretsmanager:GetSecretValue + lambda:InvokeFunction |
+
+### Topbar Controls (ORG tab)
+
+- **CLEAR ORG** button (replaces INFRA on ORG tab): confirms then calls `POST /api/org/clear`, returns to upload panel
+- **DEMO** button: always visible; routes to `/api/org/run` when on ORG tab
+
+### State Schema (`state/org_graph.json`)
+
+Identical schema to `state/sim_graph.json`:
+```json
+{
+  "nodes": [{ "node_id", "node_type", "name", "privilege_level", "sensitivity" }],
+  "edges": [{ "source", "target", "edge_type", "weight" }],
+  "breach_seed": "node-id or null"
+}
+```
+
+### `AccountAuthorizationLoader` (`trustfield/loaders/account_auth_loader.py`)
+
+Handles the full `get-account-authorization-details` dump. Key steps:
+1. Builds a policy-document index (`Arn → Document`) from `Policies[*].PolicyVersionList` (default version only; URL-decodes if needed)
+2. Processes `UserDetailList` → USER nodes, AUTHENTICATE_AS edges to groups, inline + attached policy edges
+3. Processes `GroupDetailList` → ROLE nodes, inline + attached policy edges
+4. Processes `RoleDetailList` → ROLE nodes, trust policy ASSUME_ROLE edges, inline + attached policy edges
+5. All edges use `dominant_edge_type()` + `edge_weight_from_statement()` from `_common.py`

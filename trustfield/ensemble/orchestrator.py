@@ -76,6 +76,7 @@ class TrustFieldOrchestrator:
         model_kwargs: Optional[Dict] = None,
         min_history: int = 5,
         decision_threshold: Optional[float] = None,
+        use_gnn: bool = True,
     ) -> AnalysisResult:
         """Run the full TrustField Modules 1–3 pipeline on a trust graph.
 
@@ -133,7 +134,7 @@ class TrustFieldOrchestrator:
         )
 
         # --- Step 3: Propagation ---
-        prop_results = self._runner.run_all(graph, seed_nodes, **model_kwargs)
+        prop_results = self._runner.run_all(graph, seed_nodes, use_gnn=use_gnn, **model_kwargs)
 
         # --- Step 4: Comparison report ---
         comparison = self._runner.compare_results(prop_results)
