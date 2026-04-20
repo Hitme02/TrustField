@@ -1,7 +1,7 @@
 # TrustField — Project Context File
 
 > Auto-generated comprehensive context for LLM assistants, contributors, and reviewers.  
-> Last updated: 2026-04-17 (rev 4 — demo controller, ORG tab, account-auth loader, IAM upload, trust relationships UI)
+> Last updated: 2026-04-20 (rev 5 — AWS Connect demo, CloudTrail monitor, AcmeTech scenario, policy generator, graph edge fixes)
 
 ---
 
@@ -350,7 +350,7 @@ Auto-detects which format a JSON dict is in. Returns one of:
 | POST | `/api/sim/breach/<id>` | Set breach seed + run pipeline (SSE) |
 | POST | `/api/sim/upload-iam` | Merge IAM policy JSON into sim graph `{policy, subject_id, subject_arn, replace}` |
 
-### ORG topology routes (`/api/org/*`) [NEW]
+### ORG topology routes (`/api/org/*`)
 
 | Method | Route | Description |
 |--------|-------|-------------|
@@ -361,6 +361,37 @@ Auto-detects which format a JSON dict is in. Returns one of:
 | POST | `/api/org/clear` | Delete org graph state and cached analysis |
 
 `POST /api/org/upload` auto-detects format using `detect_iam_format()` and routes to the appropriate loader (`AccountAuthorizationLoader`, `IAMPolicyLoader`, or `K8sRBACLoader`).
+
+The upload body is handled by `_do_org_upload(raw, replace)` — a shared helper called by both `api_org_upload` and `api_aws_pull`.
+
+### AWS Connect routes (`/api/aws/*`) [NEW — 2026-04-20]
+
+Simulate a real AWS integration. All endpoints work in demo mode without real credentials.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/aws/connect` | Test connection (demo: always succeeds). Returns account info. |
+| POST | `/api/aws/pull` | Pull IAM data (demo: loads `acmetech_breach_scenario.json`). Stores as org graph. |
+| GET | `/api/aws/policies` | Return generated IAM deny policies from last analysis. |
+| POST | `/api/aws/apply` | Apply policies (demo: returns policy JSON + apply commands). |
+| GET | `/api/aws/cloudtrail` | SSE stream of simulated CloudTrail events walking the attack path. |
+
+**Demo constants** (top of AWS section in `server.py`):
+- `_DEMO_ACCOUNT_ID = "123456789012"`
+- `_DEMO_ACCOUNT_ALIAS = "AcmeTech Corp"`
+- `_SCENARIO_FILE = dashboard/samples/acmetech_breach_scenario.json`
+
+**Policy generation** (`/api/aws/policies`): reads `out/org/graph_data.js`, extracts `blocked_transitions`, generates one IAM deny policy per blocked edge:
+```json
+{
+  "Effect": "Deny",
+  "Action": "sts:AssumeRole",
+  "Resource": "arn:aws:iam::123456789012:role/<target>"
+}
+```
+Returns `{ok, ready, count, policies[]}`. If no analysis has run yet: `ready: false`.
+
+**CloudTrail SSE** (`/api/aws/cloudtrail`): streams 6 hard-coded events spaced 1.8s apart representing the AcmeTech breach path. Event types: `cloudtrail_event` (status: ALLOWED/FLAGGED/BREACH) and final `cloudtrail_breach` (triggers breach simulation in dashboard).
 
 ### SSE event format (all streaming endpoints)
 
@@ -665,12 +696,21 @@ The demo overlay is a compact panel pinned to the bottom-right (`position: fixed
 
 ```javascript
 Graph3D.setNodeState(nodeId, state)   // change color + emissive intensity live
-Graph3D.setEdgeColor(fromId, toId, colorHex, opacity)  // recolor a specific edge
+Graph3D.setEdgeColor(fromId, toId, colorHex, opacity)  // recolor a specific edge; opacity=0 hides it
 Graph3D.pulseNode(nodeId)             // 500ms scale-pulse animation
 Graph3D.getGraphData()                // read current loaded graph data
 ```
 
-`_edgeMap` (module-level dict `{from:to → Line object}`) enables O(1) edge lookup without rebuilding the scene.
+`_edgeMap` (module-level dict `{from:to → Mesh object}`) enables O(1) edge lookup without rebuilding the scene.
+
+### Edge rendering [updated 2026-04-20]
+
+Edges use `CylinderGeometry` + `MeshBasicMaterial` instead of `THREE.Line` + `LineBasicMaterial`. This gives real visible thickness (WebGL ignores `linewidth` on most platforms). Cylinder radius: `0.55` units.
+
+- **Blocked edges** (`blocked_transitions` in metadata): `line.visible = false` — completely hidden, not just dimmed
+- **`setEdgeColor(from, to, hex, opacity)`**: bidirectional lookup (`from:to` then `to:from`); sets `line.visible = opacity > 0`
+- **`pulseEdge`**: skips hidden edges (guards active = no traffic animation on blocked paths)
+- **`app.js` guards_deployed handler**: calls `setEdgeColor(..., 0x1e3b2e, 0)` — hides edges when guards deploy via SSE
 
 ---
 
@@ -704,12 +744,34 @@ Allows any organization to upload their real AWS IAM data and run the full Trust
 
 ### Upload Panel (`dashboard/components/org.js` + `#org-upload-overlay`)
 
+The panel has **3 tabs**: UPLOAD, AWS CONNECT, CLOUDTRAIL.
+
+**UPLOAD tab** (original behavior):
 - **Drag/drop zone** or **Browse** button → reads file as text → populates paste area
 - **Paste textarea** — live format detection on every keystroke
 - **Format badge** — green `DETECTED: AWS ACCOUNT DUMP` or red `UNKNOWN FORMAT`
-- **3 sample buttons** — load bundled local samples (`/static/samples/*.json`) for immediate demo
+- **4 sample buttons** — load bundled local samples (`/static/samples/*.json`) for immediate demo
 - **IMPORT button** — posts to `/api/org/upload`, shows `+N nodes · +M edges · format: account_auth_dump`
 - Automatically closes and loads the preview after ~900ms on success
+
+**AWS CONNECT tab** [NEW — 2026-04-20]:
+- Credential form (Access Key ID, Secret Key, Region) + **TEST CONNECTION** / **USE DEMO MODE** buttons
+- `USE DEMO MODE` → `POST /api/aws/connect` (no credentials needed) → account banner appears
+- `PULL IAM DATA FROM AWS` → `POST /api/aws/pull` → loads AcmeTech scenario, closes panel, graph appears
+- After pipeline runs, **ENFORCEMENT POLICIES** section appears automatically (polled every 3s via `GET /api/aws/policies`)
+- Each policy shown as: source → target path + IAM deny policy name
+- **DOWNLOAD JSON** → saves `trustfield-guards.json` with all policy documents
+- **APPLY TO AWS** → `POST /api/aws/apply` → demo mode returns policies + `aws iam put-role-policy` commands
+
+**CLOUDTRAIL tab** [NEW — 2026-04-20]:
+- Connect via AWS CONNECT first, then account info appears here
+- **START MONITORING** → opens `GET /api/aws/cloudtrail` SSE stream
+- Events stream in one-by-one: ALLOWED (green) → FLAGGED (amber) → BREACH (red)
+- Final `cloudtrail_breach` event auto-triggers breach simulation on ORG graph
+
+**Module-level state in org.js**: `_awsConnected`, `_awsAccountId`, `_awsAccountAlias`, `_policyPollInterval` (cleared on `hideUploadPanel()`).
+
+**Public API**: `{ init, showUploadPanel, hideUploadPanel, checkPolicies }` — `checkPolicies()` can be called by `app.js` after pipeline completes to refresh the policy display.
 
 ### Bundled Sample Files (`dashboard/samples/`)
 
@@ -718,6 +780,29 @@ Allows any organization to upload their real AWS IAM data and run the full Trust
 | `account_dump.json` | `account_auth_dump` | 2 users, 1 group, 3 roles, 2 managed policies — full chain from dev user to admin role to secrets |
 | `role_bundle.json` | `role_bundle` | `data-pipeline-role` with Glue trust + S3/KMS/Secrets permissions |
 | `policy_doc.json` | `policy_doc` | Bare IAM policy: sts:AssumeRole + secretsmanager:GetSecretValue + lambda:InvokeFunction |
+| `acmetech_breach_scenario.json` | `account_auth_dump` | AcmeTech Corp (123456789012) — 5-hop privilege escalation demo scenario used by AWS CONNECT tab |
+
+### AcmeTech Breach Scenario (`dashboard/samples/acmetech_breach_scenario.json`) [NEW — 2026-04-20]
+
+Represents "AcmeTech Corp" (account `123456789012`). Designed for the AWS Connect demo.
+
+**Attack path** (5 hops):
+```
+dev-alice / ci-runner
+    → deploy-role          (legitimate CI/CD usage)
+    → lambda-exec-role     (hidden escalation — unusual)
+    → api-gateway-role     (service-to-service chain)
+    → secrets-access-role  (reads prod/* secrets — BREACH)
+```
+**Dead ends** (to make graph realistic): `data-science-role` (S3 + SageMaker, trusted by dev-alice only), `readonly-audit-role` (no further escalation).
+
+**CloudTrail event sequence** (hard-coded in `/api/aws/cloudtrail`):
+1. `dev-alice → deploy-role` — ALLOWED
+2. `ci-runner → deploy-role` — ALLOWED
+3. `deploy-role → lambda-exec-role` — FLAGGED
+4. `lambda-exec-role → api-gateway-role` — FLAGGED
+5. `api-gateway-role → secrets-access-role` — BREACH
+6. `secrets-access-role GetSecretValue prod/db-master` — BREACH ACTIVE
 
 ### Topbar Controls (ORG tab)
 

@@ -132,6 +132,18 @@ const Graph3D = (() => {
     );
   }
 
+  function _makeCylinderEdge(sp, tp, col, opa) {
+    const dir = new THREE.Vector3().subVectors(tp, sp);
+    const len = dir.length();
+    const mid = new THREE.Vector3().addVectors(sp, tp).multiplyScalar(0.5);
+    const geo = new THREE.CylinderGeometry(0.55, 0.55, len, 5, 1);
+    const mat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: opa });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(mid);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    return mesh;
+  }
+
   function _buildGraph(data) {
     const nodes = data.nodes || [];
     const edges = data.edges || [];
@@ -163,12 +175,11 @@ const Graph3D = (() => {
 
       let col = EDGE_COLORS.normal;
       let opa = 0.65;
-      if (isBlocked)        { col = EDGE_COLORS.blocked;  opa = 0.35; }
+      if (isBlocked)        { col = EDGE_COLORS.blocked;  opa = 0; }
       else if (isCritical)  { col = EDGE_COLORS.critical; opa = 0.85; }
 
-      const geo = new THREE.BufferGeometry().setFromPoints([sp, tp]);
-      const mat = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: opa });
-      const line = new THREE.Line(geo, mat);
+      const line = _makeCylinderEdge(sp, tp, col, opa);
+      line.visible = !isBlocked;
       _scene.add(line);
       _edgeLines.push(line);
       _edgeMap[e.source + ':' + e.target] = line;
@@ -447,10 +458,11 @@ const Graph3D = (() => {
 
   /** Change one edge's color and opacity. colorHex is a 0xRRGGBB number. */
   function setEdgeColor(fromId, toId, colorHex, opacity) {
-    const line = _edgeMap[fromId + ':' + toId];
+    const line = _edgeMap[fromId + ':' + toId] || _edgeMap[toId + ':' + fromId];
     if (!line) return;
     line.material.color.setHex(colorHex);
     line.material.opacity = opacity ?? 0.85;
+    line.visible = (opacity ?? 0.85) > 0;
   }
 
   /** Scale-burst animation on a single node — signals breach or containment. */
@@ -473,8 +485,8 @@ const Graph3D = (() => {
 
   /** Flash an edge briefly — used for live mock-cloud traffic events. */
   function pulseEdge(fromId, toId, colorHex, durationMs) {
-    const line = _edgeMap[fromId + ':' + toId];
-    if (!line) return;
+    const line = _edgeMap[fromId + ':' + toId] || _edgeMap[toId + ':' + fromId];
+    if (!line || !line.visible) return;
     const origColor = line.material.color.getHex();
     const origOpa   = line.material.opacity;
     line.material.color.setHex(colorHex);

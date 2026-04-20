@@ -1,0 +1,333 @@
+{
+  "UserDetailList": [
+    {
+      "UserId": "AIDAACMEDEVUSER001",
+      "UserName": "dev-alice",
+      "Arn": "arn:aws:iam::123456789012:user/dev-alice",
+      "Path": "/",
+      "GroupList": ["Developers"],
+      "AttachedManagedPolicies": [],
+      "UserPolicyList": [
+        {
+          "PolicyName": "AliceAssumeRoles",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": [
+                  "arn:aws:iam::123456789012:role/deploy-role",
+                  "arn:aws:iam::123456789012:role/data-science-role"
+                ]}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "UserId": "AIDAACMECIUSER002",
+      "UserName": "ci-runner",
+      "Arn": "arn:aws:iam::123456789012:user/ci-runner",
+      "Path": "/service/",
+      "GroupList": ["CIPipeline"],
+      "AttachedManagedPolicies": [],
+      "UserPolicyList": []
+    }
+  ],
+
+  "GroupDetailList": [
+    {
+      "GroupId": "AGPAACMEDEVELOPERS01",
+      "GroupName": "Developers",
+      "Arn": "arn:aws:iam::123456789012:group/Developers",
+      "AttachedManagedPolicies": [],
+      "GroupPolicyList": [
+        {
+          "PolicyName": "DevBaseAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:ListBucket"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "GroupId": "AGPAACMECIPIPELINE01",
+      "GroupName": "CIPipeline",
+      "Arn": "arn:aws:iam::123456789012:group/CIPipeline",
+      "AttachedManagedPolicies": [],
+      "GroupPolicyList": [
+        {
+          "PolicyName": "CIPipelineAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["codebuild:StartBuild", "codepipeline:StartPipelineExecution"],
+                "Resource": "*" },
+              { "Effect": "Allow",
+                "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/deploy-role" }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+
+  "RoleDetailList": [
+    {
+      "RoleId": "AROAACMEDEPLOYROLE01",
+      "RoleName": "deploy-role",
+      "Arn": "arn:aws:iam::123456789012:role/deploy-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": [
+              "arn:aws:iam::123456789012:user/dev-alice",
+              "arn:aws:iam::123456789012:user/ci-runner"
+            ]},
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "DeployRoleEscalate",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/lambda-exec-role" },
+              { "Effect": "Allow",
+                "Action": ["codedeploy:CreateDeployment", "codedeploy:GetDeployment",
+                           "ecs:UpdateService", "ecs:DescribeServices"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": [
+        { "PolicyName": "LambdaDeployPolicy", "PolicyArn": "arn:aws:iam::123456789012:policy/LambdaDeployPolicy" }
+      ]
+    },
+    {
+      "RoleId": "AROAACMELAMBDAEXEC01",
+      "RoleName": "lambda-exec-role",
+      "Arn": "arn:aws:iam::123456789012:role/lambda-exec-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": "arn:aws:iam::123456789012:role/deploy-role" },
+            "Action": "sts:AssumeRole" },
+          { "Effect": "Allow",
+            "Principal": { "Service": "lambda.amazonaws.com" },
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "LambdaExecEscalate",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["lambda:UpdateFunctionCode", "lambda:InvokeFunction",
+                           "lambda:GetFunction", "logs:CreateLogGroup",
+                           "logs:CreateLogStream", "logs:PutLogEvents"],
+                "Resource": "*" },
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/api-gateway-role" }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": []
+    },
+    {
+      "RoleId": "AROAACMEAPIGWROLE01",
+      "RoleName": "api-gateway-role",
+      "Arn": "arn:aws:iam::123456789012:role/api-gateway-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "Service": "lambda.amazonaws.com" },
+            "Action": "sts:AssumeRole" },
+          { "Effect": "Allow",
+            "Principal": { "AWS": "arn:aws:iam::123456789012:role/lambda-exec-role" },
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "ApiGatewayEscalate",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["execute-api:Invoke", "apigateway:GET"],
+                "Resource": "*" },
+              { "Effect": "Allow", "Action": "sts:AssumeRole",
+                "Resource": "arn:aws:iam::123456789012:role/secrets-access-role" }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": []
+    },
+    {
+      "RoleId": "AROAACMESECRETSROLE1",
+      "RoleName": "secrets-access-role",
+      "Arn": "arn:aws:iam::123456789012:role/secrets-access-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": "arn:aws:iam::123456789012:role/api-gateway-role" },
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "ProdSecretsAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+                "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/*" },
+              { "Effect": "Allow",
+                "Action": ["kms:Decrypt", "kms:DescribeKey"],
+                "Resource": "arn:aws:kms:us-east-1:123456789012:key/*" }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": [
+        { "PolicyName": "SecretsReadPolicy", "PolicyArn": "arn:aws:iam::123456789012:policy/SecretsReadPolicy" }
+      ]
+    },
+    {
+      "RoleId": "AROAACMEDATASCIENC01",
+      "RoleName": "data-science-role",
+      "Arn": "arn:aws:iam::123456789012:role/data-science-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": "arn:aws:iam::123456789012:user/dev-alice" },
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [],
+      "AttachedManagedPolicies": [
+        { "PolicyName": "DataSciencePolicy", "PolicyArn": "arn:aws:iam::123456789012:policy/DataSciencePolicy" }
+      ]
+    },
+    {
+      "RoleId": "AROAACMEREADONLYA01",
+      "RoleName": "readonly-audit-role",
+      "Arn": "arn:aws:iam::123456789012:role/readonly-audit-role",
+      "AssumeRolePolicyDocument": {
+        "Version": "2012-10-17",
+        "Statement": [
+          { "Effect": "Allow",
+            "Principal": { "AWS": "arn:aws:iam::123456789012:user/dev-alice" },
+            "Action": "sts:AssumeRole" }
+        ]
+      },
+      "RolePolicyList": [
+        {
+          "PolicyName": "ReadOnlyAccess",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["iam:List*", "iam:Get*", "cloudtrail:LookupEvents",
+                           "config:Describe*", "config:Get*"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": []
+    }
+  ],
+
+  "Policies": [
+    {
+      "PolicyName": "LambdaDeployPolicy",
+      "PolicyId": "ANPAACMELAMBDADEPLOY",
+      "Arn": "arn:aws:iam::123456789012:policy/LambdaDeployPolicy",
+      "PolicyVersionList": [
+        {
+          "VersionId": "v1",
+          "IsDefaultVersion": true,
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["lambda:UpdateFunctionCode", "lambda:CreateFunction",
+                           "lambda:InvokeFunction", "lambda:GetFunction",
+                           "lambda:ListFunctions"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "PolicyName": "SecretsReadPolicy",
+      "PolicyId": "ANPAACMESECRETSREAD",
+      "Arn": "arn:aws:iam::123456789012:policy/SecretsReadPolicy",
+      "PolicyVersionList": [
+        {
+          "VersionId": "v1",
+          "IsDefaultVersion": true,
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret",
+                           "secretsmanager:ListSecrets"],
+                "Resource": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/*" },
+              { "Effect": "Allow",
+                "Action": ["kms:Decrypt", "kms:GenerateDataKey"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "PolicyName": "DataSciencePolicy",
+      "PolicyId": "ANPAACMEDATASCIENCE",
+      "Arn": "arn:aws:iam::123456789012:policy/DataSciencePolicy",
+      "PolicyVersionList": [
+        {
+          "VersionId": "v1",
+          "IsDefaultVersion": true,
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              { "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket",
+                           "s3:CreateBucket"],
+                "Resource": "arn:aws:s3:::acmetech-data-*" },
+              { "Effect": "Allow",
+                "Action": ["sagemaker:CreateTrainingJob", "sagemaker:DescribeTrainingJob",
+                           "sagemaker:CreateModel", "sagemaker:CreateEndpoint",
+                           "sagemaker:InvokeEndpoint", "sagemaker:ListTrainingJobs"],
+                "Resource": "*" }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

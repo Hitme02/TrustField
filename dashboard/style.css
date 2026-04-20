@@ -1275,3 +1275,181 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
 }
 #org-clear-btn.visible { display: inline-block; }
 #org-clear-btn:hover { color: var(--red); border-color: var(--red); }
+
+/* ── Org upload tabs ───────────────────────────────────────────────── */
+.org-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.org-tab {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 6px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+.org-tab:hover { color: var(--text); }
+.org-tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+
+.org-pane { display: none; }
+.org-pane.active { display: block; }
+
+/* ── AWS Connect pane ─────────────────────────────────────────────── */
+.org-section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--dimmer);
+  margin-bottom: 10px;
+}
+.org-field-group {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 12px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.org-field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.org-field-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  width: 110px;
+  flex-shrink: 0;
+}
+.org-field-input {
+  flex: 1;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 4px 8px;
+  outline: none;
+}
+.org-field-input:focus { border-color: var(--cyan-dim); }
+.org-aws-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.org-action-btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  padding: 5px 14px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.org-action-btn:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+.org-action-btn.highlight { border-color: var(--cyan-dim); color: var(--cyan); }
+.org-action-btn.highlight:hover { background: var(--cyan-glow); }
+.org-action-btn.full { width: 100%; }
+.org-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.org-dim-text { font-family: var(--mono); font-size: 10px; color: var(--dimmer); }
+
+#aws-account-banner {
+  background: var(--cyan-glow);
+  border: 1px solid var(--cyan-dim);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--cyan);
+}
+#aws-pull-status, #aws-apply-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  min-height: 16px;
+  margin-top: 4px;
+}
+
+.org-policies-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dimmer);
+  margin-bottom: 10px;
+}
+.policy-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.policy-row:last-child { border-bottom: none; }
+.policy-badge {
+  background: var(--red);
+  color: #fff;
+  font-size: 8px;
+  padding: 1px 5px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.policy-desc { color: var(--dim); flex: 1; }
+.policy-name { color: var(--dimmer); font-size: 9px; }
+
+/* ── CloudTrail pane ──────────────────────────────────────────────── */
+#ct-feed {
+  margin-top: 14px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#ct-feed::-webkit-scrollbar { width: 3px; }
+#ct-feed::-webkit-scrollbar-thumb { background: var(--border2); }
+
+.ct-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  animation: ct-slide-in 0.25s ease;
+}
+@keyframes ct-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ct-event.allowed { border-color: var(--border); }
+.ct-event.flagged { border-color: rgba(255,149,0,0.4); background: rgba(255,149,0,0.04); }
+.ct-event.breach  { border-color: rgba(255,59,48,0.5); background: rgba(255,59,48,0.06); }
+.ct-time { color: var(--dimmer); width: 56px; flex-shrink: 0; }
+.ct-status-badge {
+  font-size: 8px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  letter-spacing: 0.05em;
+}
+.ct-event.allowed .ct-status-badge { background: rgba(52,199,89,0.15); color: var(--green); }
+.ct-event.flagged .ct-status-badge { background: rgba(255,149,0,0.15); color: var(--amber); }
+.ct-event.breach  .ct-status-badge { background: rgba(255,59,48,0.15); color: var(--red); }
+.ct-detail { color: var(--dim); flex: 1; line-height: 1.5; }
+.ct-path { color: var(--text); font-weight: 600; }

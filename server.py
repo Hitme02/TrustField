@@ -915,22 +915,12 @@ def _run_org_pipeline_stream(seed_nodes: list, use_gnn: bool = True) -> Iterator
         yield _evt("error", {"msg": str(exc), "trace": traceback.format_exc()})
 
 
-@app.route("/api/org/upload", methods=["POST"])
-def api_org_upload():
-    """Parse a real IAM dump and store it as the org graph.
+def _do_org_upload(raw: dict, replace: bool = True):
+    """Shared helper: parse IAM data, save org state, return Flask response.
 
-    Body: { "data": <parsed-json-dict>, "replace": bool }
-
-    Auto-detects format:
-        account_auth_dump  — aws iam get-account-authorization-details
-        policy_doc         — bare IAM policy {Version, Statement}
-        role_bundle        — TrustField role bundle {RoleName, TrustPolicy}
-        k8s_rbac           — Kubernetes RBAC
+    Accepts a parsed JSON dict (any supported format) and saves it as the
+    current org graph state.  Returns a Flask jsonify response directly.
     """
-    body    = request.get_json(silent=True) or {}
-    raw     = body.get("data")
-    replace = bool(body.get("replace", True))
-
     if not raw or not isinstance(raw, dict):
         return jsonify({"error": "'data' field must be a JSON object"}), 400
 
@@ -1022,6 +1012,24 @@ def api_org_upload():
         return jsonify({"error": str(exc), "trace": traceback.format_exc()}), 500
 
 
+@app.route("/api/org/upload", methods=["POST"])
+def api_org_upload():
+    """Parse a real IAM dump and store it as the org graph.
+
+    Body: { "data": <parsed-json-dict>, "replace": bool }
+
+    Auto-detects format:
+        account_auth_dump  — aws iam get-account-authorization-details
+        policy_doc         — bare IAM policy {Version, Statement}
+        role_bundle        — TrustField role bundle {RoleName, TrustPolicy}
+        k8s_rbac           — Kubernetes RBAC
+    """
+    body    = request.get_json(silent=True) or {}
+    raw     = body.get("data")
+    replace = bool(body.get("replace", True))
+    return _do_org_upload(raw, replace=replace)
+
+
 @app.route("/api/org/clear", methods=["POST"])
 def api_org_clear():
     """Delete the org graph state and cached analysis."""
@@ -1090,6 +1098,229 @@ def api_org_set_seed():
 @app.route("/api/org/seed", methods=["OPTIONS"])
 @app.route("/api/org/breach/<path:node_id>", methods=["OPTIONS"])
 def _org_options_handler(**kwargs):
+    return "", 204
+
+# ---------------------------------------------------------------------------
+# AWS Connect — demo-mode endpoints
+# ---------------------------------------------------------------------------
+
+_DEMO_ACCOUNT_ID    = "123456789012"
+_DEMO_ACCOUNT_ALIAS = "AcmeTech Corp"
+_DEMO_IDENTITY      = "arn:aws:iam::123456789012:user/demo-admin"
+_SCENARIO_FILE      = DASHBOARD / "samples" / "acmetech_breach_scenario.json"
+
+# Hard-coded CloudTrail demo sequence
+_CT_EVENTS = [
+    {
+        "eventName":       "AssumeRole",
+        "userIdentity":    "dev-alice",
+        "requestParameters": {"roleArn": "arn:aws:iam::123456789012:role/deploy-role"},
+        "status":          "ALLOWED",
+        "detail":          "Normal CI/CD pipeline activity",
+    },
+    {
+        "eventName":       "AssumeRole",
+        "userIdentity":    "ci-runner",
+        "requestParameters": {"roleArn": "arn:aws:iam::123456789012:role/deploy-role"},
+        "status":          "ALLOWED",
+        "detail":          "Automated build triggered",
+    },
+    {
+        "eventName":       "AssumeRole",
+        "userIdentity":    "deploy-role",
+        "requestParameters": {"roleArn": "arn:aws:iam::123456789012:role/lambda-exec-role"},
+        "status":          "FLAGGED",
+        "detail":          "Unusual role chain detected",
+    },
+    {
+        "eventName":       "AssumeRole",
+        "userIdentity":    "lambda-exec-role",
+        "requestParameters": {"roleArn": "arn:aws:iam::123456789012:role/api-gateway-role"},
+        "status":          "FLAGGED",
+        "detail":          "Privilege escalation path active",
+    },
+    {
+        "eventName":       "AssumeRole",
+        "userIdentity":    "api-gateway-role",
+        "requestParameters": {"roleArn": "arn:aws:iam::123456789012:role/secrets-access-role"},
+        "status":          "BREACH",
+        "detail":          "Critical: secrets access role reached",
+    },
+    {
+        "eventName":       "GetSecretValue",
+        "userIdentity":    "secrets-access-role",
+        "requestParameters": {"secretId": "prod/db-master"},
+        "status":          "BREACH",
+        "detail":          "BREACH ACTIVE: production credentials accessed",
+    },
+]
+
+
+@app.route("/api/aws/connect", methods=["POST"])
+def api_aws_connect():
+    """Demo-mode AWS connection — always succeeds."""
+    body   = request.get_json(silent=True) or {}
+    region = str(body.get("region", "us-east-1")).strip() or "us-east-1"
+    return jsonify({
+        "ok":             True,
+        "mode":           "demo",
+        "account_id":     _DEMO_ACCOUNT_ID,
+        "account_alias":  _DEMO_ACCOUNT_ALIAS,
+        "region":         region,
+        "identity":       _DEMO_IDENTITY,
+    })
+
+
+@app.route("/api/aws/pull", methods=["POST"])
+def api_aws_pull():
+    """Load the AcmeTech breach scenario and store it as the org graph."""
+    try:
+        raw = json.loads(_SCENARIO_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return jsonify({"error": f"Could not read scenario file: {exc}"}), 500
+
+    resp = _do_org_upload(raw, replace=True)
+
+    # Inject account metadata into the response if the upload succeeded
+    try:
+        data = resp.get_json()
+        if data and data.get("ok"):
+            data["account_alias"] = _DEMO_ACCOUNT_ALIAS
+            data["account_id"]    = _DEMO_ACCOUNT_ID
+            return jsonify(data)
+    except Exception:
+        pass
+
+    return resp
+
+
+@app.route("/api/aws/policies")
+def api_aws_policies():
+    """Return enforcement policies generated from blocked_transitions in the org graph."""
+    js_path = OUT_DIR / "org" / "graph_data.js"
+    if not js_path.exists():
+        return jsonify({"ok": True, "ready": False, "policies": []})
+
+    try:
+        data = _parse_graph_js(js_path)
+    except Exception:
+        return jsonify({"ok": True, "ready": False, "policies": []})
+
+    blocked = data.get("metadata", {}).get("blocked_transitions", [])
+    if not blocked:
+        return jsonify({"ok": True, "ready": True, "count": 0, "policies": []})
+
+    policies = []
+    for pair in blocked:
+        if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+            continue
+        src, tgt = str(pair[0]), str(pair[1])
+        policy_name = f"TrustField-Guard-{src.replace('/', '-')}-to-{tgt.replace('/', '-')}"
+        doc = {
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Sid":      "TrustFieldGuard",
+                "Effect":   "Deny",
+                "Action":   "sts:AssumeRole",
+                "Resource": f"arn:aws:iam::{_DEMO_ACCOUNT_ID}:role/{tgt}",
+            }],
+        }
+        policies.append({
+            "source":          src,
+            "target":          tgt,
+            "policy_name":     policy_name,
+            "description":     f"Deny {src} from assuming {tgt}",
+            "policy_document": doc,
+            "apply_command":   (
+                f"aws iam put-role-policy --role-name {src} "
+                f"--policy-name TrustField-Guard-{tgt} "
+                f"--policy-document '{json.dumps(doc)}'"
+            ),
+        })
+
+    return jsonify({"ok": True, "ready": True, "count": len(policies), "policies": policies})
+
+
+@app.route("/api/aws/apply", methods=["POST"])
+def api_aws_apply():
+    """Demo-mode: return policies that would be applied (no real boto3 call)."""
+    js_path = OUT_DIR / "org" / "graph_data.js"
+    if not js_path.exists():
+        return jsonify({"ok": True, "applied": 0, "mode": "demo", "policies": []})
+
+    try:
+        data = _parse_graph_js(js_path)
+    except Exception:
+        return jsonify({"ok": True, "applied": 0, "mode": "demo", "policies": []})
+
+    blocked = data.get("metadata", {}).get("blocked_transitions", [])
+    policies = []
+    for pair in blocked:
+        if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+            continue
+        src, tgt = str(pair[0]), str(pair[1])
+        policy_name = f"TrustField-Guard-{src.replace('/', '-')}-to-{tgt.replace('/', '-')}"
+        doc = {
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Sid":      "TrustFieldGuard",
+                "Effect":   "Deny",
+                "Action":   "sts:AssumeRole",
+                "Resource": f"arn:aws:iam::{_DEMO_ACCOUNT_ID}:role/{tgt}",
+            }],
+        }
+        policies.append({
+            "source":          src,
+            "target":          tgt,
+            "policy_name":     policy_name,
+            "description":     f"Deny {src} from assuming {tgt}",
+            "policy_document": doc,
+            "apply_command":   (
+                f"aws iam put-role-policy --role-name {src} "
+                f"--policy-name TrustField-Guard-{tgt} "
+                f"--policy-document '{json.dumps(doc)}'"
+            ),
+        })
+
+    return jsonify({"ok": True, "applied": len(policies), "mode": "demo", "policies": policies})
+
+
+@app.route("/api/aws/cloudtrail")
+def api_aws_cloudtrail():
+    """SSE stream of simulated CloudTrail events for the AcmeTech breach scenario."""
+
+    def _stream():
+        import datetime
+        time.sleep(1)
+        for evt in _CT_EVENTS:
+            now = datetime.datetime.now().strftime("%H:%M:%S")
+            payload = dict(evt)
+            payload["type"] = "cloudtrail_event"
+            payload["time"] = now
+            yield f"event: cloudtrail_event\ndata: {json.dumps(payload)}\n\n"
+            time.sleep(1.8)
+
+        # Final breach trigger
+        breach_payload = {"type": "cloudtrail_breach", "node": "dev-alice"}
+        yield f"event: cloudtrail_breach\ndata: {json.dumps(breach_payload)}\n\n"
+
+    return Response(
+        _stream(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":               "no-cache",
+            "X-Accel-Buffering":           "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+@app.route("/api/aws/connect",    methods=["OPTIONS"])
+@app.route("/api/aws/pull",       methods=["OPTIONS"])
+@app.route("/api/aws/policies",   methods=["OPTIONS"])
+@app.route("/api/aws/apply",      methods=["OPTIONS"])
+@app.route("/api/aws/cloudtrail", methods=["OPTIONS"])
+def _aws_options_handler(**kwargs):
     return "", 204
 
 # ---------------------------------------------------------------------------

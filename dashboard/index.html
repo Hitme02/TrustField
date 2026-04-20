@@ -41,38 +41,103 @@
     <div id="org-upload-overlay">
       <div id="org-upload-box">
         <div class="org-upload-title">ORG — REAL IAM DATA</div>
-        <div class="org-upload-sub">Upload your AWS IAM account data to build a real trust graph</div>
+        <div class="org-upload-sub">Connect to AWS, upload IAM data, or monitor CloudTrail events</div>
 
-        <div id="org-drop-zone">
-          <div id="org-drop-zone-label">
-            Drop JSON file here &nbsp;·&nbsp; <span id="org-browse-link">Browse</span>
+        <!-- Tab bar -->
+        <div class="org-tab-bar">
+          <button class="org-tab active" data-pane="upload">UPLOAD</button>
+          <button class="org-tab" data-pane="aws">AWS CONNECT</button>
+          <button class="org-tab" data-pane="cloudtrail">CLOUDTRAIL</button>
+        </div>
+
+        <!-- Pane 1: UPLOAD (existing content, unchanged) -->
+        <div id="org-pane-upload" class="org-pane active">
+          <div id="org-drop-zone">
+            <div id="org-drop-zone-label">
+              Drop JSON file here &nbsp;·&nbsp; <span id="org-browse-link">Browse</span>
+            </div>
+            <input type="file" id="org-file-input" accept=".json,application/json">
           </div>
-          <input type="file" id="org-file-input" accept=".json,application/json">
+
+          <div id="org-format-badge">FORMAT DETECTED</div>
+
+          <div class="org-or-divider">— or paste JSON —</div>
+          <textarea id="org-paste-area" placeholder='{ "UserDetailList": [...], "RoleDetailList": [...] }'></textarea>
+
+          <div class="org-samples-label">TRY WITH SAMPLE DATA</div>
+
+          <div class="org-sample-row">
+            <span class="org-sample-name">Full account dump — UserDetailList + GroupDetailList + RoleDetailList</span>
+            <button class="org-sample-btn" data-url="/static/samples/account_dump.json">LOAD</button>
+          </div>
+          <div class="org-sample-row">
+            <span class="org-sample-name">Role bundle — TrustPolicy + PermissionPolicies</span>
+            <button class="org-sample-btn" data-url="/static/samples/role_bundle.json">LOAD</button>
+          </div>
+          <div class="org-sample-row">
+            <span class="org-sample-name">Bare IAM policy document — Statement array</span>
+            <button class="org-sample-btn" data-url="/static/samples/policy_doc.json">LOAD</button>
+          </div>
+
+          <div class="org-import-row">
+            <button id="org-import-btn">IMPORT</button>
+            <span id="org-import-status"></span>
+          </div>
         </div>
 
-        <div id="org-format-badge">FORMAT DETECTED</div>
+        <!-- Pane 2: AWS CONNECT -->
+        <div id="org-pane-aws" class="org-pane">
+          <div class="org-section-label">AWS CREDENTIALS</div>
+          <div class="org-field-group">
+            <div class="org-field-row">
+              <span class="org-field-label">Access Key ID</span>
+              <input id="aws-key-id" type="text" class="org-field-input" placeholder="AKIAIOSFODNN7EXAMPLE" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="org-field-row">
+              <span class="org-field-label">Secret Key</span>
+              <input id="aws-secret-key" type="password" class="org-field-input" placeholder="●●●●●●●●●●●●●●●●●●●●" autocomplete="new-password">
+            </div>
+            <div class="org-field-row">
+              <span class="org-field-label">Region</span>
+              <select id="aws-region" class="org-field-input">
+                <option value="us-east-1">us-east-1</option>
+                <option value="us-west-2">us-west-2</option>
+                <option value="eu-west-1">eu-west-1</option>
+                <option value="ap-south-1">ap-south-1</option>
+              </select>
+            </div>
+          </div>
+          <div class="org-aws-actions">
+            <button id="aws-test-btn" class="org-action-btn">TEST CONNECTION</button>
+            <button id="aws-demo-btn" class="org-action-btn highlight">USE DEMO MODE</button>
+          </div>
+          <div id="aws-account-banner" style="display:none"></div>
+          <button id="aws-pull-btn" class="org-action-btn full" style="display:none">PULL IAM DATA FROM AWS</button>
+          <div id="aws-pull-status"></div>
 
-        <div class="org-or-divider">— or paste JSON —</div>
-        <textarea id="org-paste-area" placeholder='{ "UserDetailList": [...], "RoleDetailList": [...] }'></textarea>
-
-        <div class="org-samples-label">TRY WITH SAMPLE DATA</div>
-
-        <div class="org-sample-row">
-          <span class="org-sample-name">Full account dump — UserDetailList + GroupDetailList + RoleDetailList</span>
-          <button class="org-sample-btn" data-url="/static/samples/account_dump.json">LOAD</button>
+          <!-- Policies section — shown after analysis runs -->
+          <div id="aws-policies-section" style="display:none">
+            <div class="org-section-label" style="margin-top:18px">ENFORCEMENT POLICIES</div>
+            <div class="org-policies-sub">Generated by TrustField guard engine · ready to apply</div>
+            <div id="aws-policies-list"></div>
+            <div class="org-aws-actions" style="margin-top:12px">
+              <button id="aws-download-btn" class="org-action-btn">DOWNLOAD JSON</button>
+              <button id="aws-apply-btn" class="org-action-btn highlight">APPLY TO AWS</button>
+            </div>
+            <div id="aws-apply-status"></div>
+          </div>
         </div>
-        <div class="org-sample-row">
-          <span class="org-sample-name">Role bundle — TrustPolicy + PermissionPolicies</span>
-          <button class="org-sample-btn" data-url="/static/samples/role_bundle.json">LOAD</button>
-        </div>
-        <div class="org-sample-row">
-          <span class="org-sample-name">Bare IAM policy document — Statement array</span>
-          <button class="org-sample-btn" data-url="/static/samples/policy_doc.json">LOAD</button>
-        </div>
 
-        <div class="org-import-row">
-          <button id="org-import-btn">IMPORT</button>
-          <span id="org-import-status"></span>
+        <!-- Pane 3: CLOUDTRAIL -->
+        <div id="org-pane-cloudtrail" class="org-pane">
+          <div class="org-section-label">CLOUDTRAIL MONITOR</div>
+          <div id="ct-account-label" class="org-dim-text">Use AWS CONNECT tab to link an account first</div>
+          <div id="ct-controls" style="display:none">
+            <div class="org-dim-text" id="ct-account-info"></div>
+            <button id="ct-start-btn" class="org-action-btn full" style="margin-top:12px">START MONITORING</button>
+          </div>
+          <div id="ct-feed"></div>
+          <button id="ct-stop-btn" class="org-action-btn" style="display:none;margin-top:8px">STOP MONITORING</button>
         </div>
       </div>
     </div>

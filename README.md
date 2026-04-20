@@ -63,6 +63,89 @@ TrustField runs all models in parallel and combines them with a **topology-aware
 
 ---
 
+## How TrustField Works on a Real System
+
+TrustField is not just a visualisation — it is a closed-loop security engine that connects directly to a live AWS account, monitors real traffic, and pushes enforceable deny policies back to IAM when a breach is detected.
+
+### End-to-End Flow
+
+```mermaid
+flowchart TD
+    A([AWS Account]) -->|boto3\nget-account-authorization-details| B[Step 1\nAWS Connect\nPull IAM Data]
+    B --> C[TrustGraph Built\nusers · roles · services\nedges = trust relationships]
+    C --> D[Step 2\nCloudTrail Linked\nLive event stream]
+    D -->|AssumeRole · GetSecretValue\nevents pulse on graph edges| E[Normal Traffic\nVisible in Dashboard]
+
+    E -->|GuardDuty / SIEM / manual\nbreach signal + seed node| F{Step 3\nBreach Detected\nout of scope}
+    F -->|seed node ID| G
+
+    subgraph G[Step 4 — TrustField Pipeline  < 100 ms]
+        G1[M1 Trust Graph\nalready built] --> G2
+        G2[M2 Propagation\n6 models in parallel\nBFS · SIR · Spectral\nPercolation · Control · GNN] --> G3
+        G3[M3 Ensemble\ntopology-aware weighting\nSQLite adaptive history] --> G4
+        G4[M4 Verification\nIAMTraversal · DelegationToken\nPBR vs VBR · ExploitabilityGap] --> G5
+        G5[M5 Containment\nGuardNetwork 2-of-3 consensus\nContainmentEngine selects edges\nFeedbackLoop risk↔strictness]
+    end
+
+    G5 -->|blocked_transitions list| H[Step 5\nPolicy Generator\nDeny policy per blocked edge]
+    H -->|boto3\nput_role_policy| A
+
+    style F fill:#2a1a1a,stroke:#ff3b30,color:#ff3b30
+    style G fill:#0d1520,stroke:#2a3f6e
+    style A fill:#0d1a0d,stroke:#34c759,color:#34c759
+```
+
+### Step-by-Step Explanation
+
+#### Step 1 — AWS Connect (Ingest)
+TrustField calls `boto3.client('iam').get_account_authorization_details()` — a single AWS API call that returns all users, groups, roles, and policies in the account. The `AccountAuthorizationLoader` parses this into a **TrustGraph**: every principal is a node, every permission relationship is a typed directed edge (`ASSUME_ROLE`, `TOKEN_MINT`, `SECRET_READ`, etc.).
+
+> In the dashboard: **ORG tab → AWS CONNECT → USE DEMO MODE → PULL IAM DATA FROM AWS**
+
+#### Step 2 — CloudTrail (Live Monitoring)
+Once the graph is built, CloudTrail events (real or simulated) are streamed as SSE. Each `AssumeRole`, `GetSecretValue`, or service call maps to an edge in the trust graph and is shown as a live pulse. This makes real traffic visible on the topology — you can see which paths are actively being used.
+
+> In the dashboard: **ORG tab → CLOUDTRAIL → START MONITORING**
+
+#### Step 3 — Breach Detected (Out of Scope)
+TrustField does not perform breach detection — that is the job of AWS GuardDuty, a SIEM, or a custom alerting rule. What TrustField receives is a simple signal: a **seed node ID** (the identity that was compromised). In production this would be a webhook call to `POST /api/org/breach/<node_id>`. In the demo, the CloudTrail stream fires this automatically when it reaches a BREACH event, or you can trigger it manually by clicking any node → ⚡ SIMULATE BREACH.
+
+#### Step 4 — TrustField Analysis Pipeline (Core)
+From the breach seed, the 6-module pipeline runs in under 100 ms:
+
+| Module | What it does |
+|--------|-------------|
+| **M1 Trust Graph** | Already built from IAM data — no rebuild needed |
+| **M2 Propagation** | 6 models run in parallel. BFS finds reachable nodes; SIR epidemic models spread through dense clusters; spectral cascade identifies structurally powerful hubs; percolation handles uncertain/conditional edges; control system models feedback chains; GNN (2-layer GCN) learns structural risk patterns |
+| **M3 Ensemble** | Topology fingerprint (clustering, centrality, spectral gap) selects model weight priors. SQLite-backed `WeightTracker` adapts weights over time based on F1 history. Final risk score = Σ wᵢ · rᵢ per node |
+| **M4 Verification** | `IAMTraversal` walks the graph with real AWS `sts:AssumeRole` semantics, validating each hop with an HMAC-SHA256 `DelegationToken`. Computes **PBR** (predicted blast radius) vs **VBR** (verified blast radius). Classifies gap as CALIBRATED / OVER\_PREDICTED / UNDER\_PREDICTED / CRITICAL\_MISS |
+| **M5 Containment** | `ContainmentEngine` selects edges to block: top-20 predicted-risk edges ∪ all verified traversal edges. `GuardNetwork` requires **2-of-3 consensus** from a guard triad before deploying — prevents single-point manipulation. `FeedbackLoop` tightens strictness as risk rises, relaxes as it falls |
+
+#### Step 5 — Guard Enforcement (Back to AWS)
+For each edge the `ContainmentEngine` decides to block, TrustField generates an **inline IAM deny policy**:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "TrustFieldGuard",
+    "Effect": "Deny",
+    "Action": "sts:AssumeRole",
+    "Resource": "arn:aws:iam::123456789012:role/<target>"
+  }]
+}
+```
+
+This is applied via `boto3.client('iam').put_role_policy(RoleName=<source>, ...)`. AWS IAM evaluation order means an explicit `Deny` **always overrides any existing `Allow`** — so original policies are never modified. Guards are additive and fully reversible: `delete_role_policy` lifts them cleanly.
+
+> In the dashboard: **AWS CONNECT tab → ENFORCEMENT POLICIES → DOWNLOAD JSON or APPLY TO AWS**
+
+### Why Not Just Remove the Permissive Policy?
+
+Modifying existing IAM policies is dangerous — they may be managed policies shared across many roles, or controlled by a separate team. TrustField's deny-override approach is surgical: it blocks exactly the paths identified by the verification engine, leaves everything else untouched, and can be rolled back in one API call per guard.
+
+---
+
 ## Architecture
 
 ```
@@ -755,6 +838,10 @@ Open **http://127.0.0.1:5000** in your browser.
   - Click **ANALYZE** (or **RUN**) to run the full 6-module pipeline on your infra
   - Click any node in the 3D graph → click **⚡ SIMULATE BREACH FROM THIS NODE** to run the pipeline from that entry point
   - Watch attack paths, blast radius, and guard containment update in real time
+- **ORG tab** — real AWS IAM data (or the built-in AcmeTech demo — no account needed):
+  - **UPLOAD** — drag-and-drop an IAM JSON export or load a bundled sample
+  - **AWS CONNECT** — click **USE DEMO MODE** to load the AcmeTech Corp breach scenario, run the pipeline, then view and download generated IAM deny policies
+  - **CLOUDTRAIL** — click **START MONITORING** to replay a simulated event stream that walks the 5-hop privilege-escalation path and auto-triggers breach analysis
 
 Optional flags:
 

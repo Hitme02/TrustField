@@ -104,7 +104,7 @@ const App = (() => {
     _mockFeed.addEventListener('guards_deployed', e => {
       const d = JSON.parse(e.data);
       (d.blocked || []).forEach(([from, to]) => {
-        Graph3D.setEdgeColor(from, to, 0x1e3b2e, 0.35);
+        Graph3D.setEdgeColor(from, to, 0x1e3b2e, 0);
       });
     });
 
