@@ -898,7 +898,3 @@ print(f"PBR: {result.metrics['pbr_size']}  VBR: {result.metrics['vbr_size']}")
 ```
 
 ---
-
-## Context
-
-This project is the **Interdisciplinary Project (IDP)** deliverable for CS367P at RV College of Engineering (Sem VI, 2025-26), Team PS-11, under the guidance of **Dr. Anand Jatti**. The system is designed for submission to an IEEE/ACM/Springer cybersecurity venue.
