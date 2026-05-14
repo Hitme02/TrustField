@@ -46,7 +46,6 @@ output/
 
 # ── Generated / stale artefacts in repo root ─────────────────────────
 verification_results.csv
-*.tex
 
 # ── Database files (adaptive weight tracker) ─────────────────────────
 *.db
