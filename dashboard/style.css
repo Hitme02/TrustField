@@ -1099,37 +1099,37 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
   background: var(--bg);
   z-index: 30;
   overflow-y: auto;
-  padding: 40px 0;
+  padding: 28px 0;
 }
 #org-upload-overlay.active { display: flex; align-items: flex-start; justify-content: center; }
 
 #org-upload-box {
-  width: 520px;
-  max-width: 90vw;
+  width: 720px;
+  max-width: 94vw;
   background: var(--panel);
   border: 1px solid var(--border);
-  padding: 28px 28px 24px;
+  padding: 36px 36px 30px;
 }
 
 .org-upload-title {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.12em;
   color: var(--cyan);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 .org-upload-sub {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--dimmer);
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 /* Drop zone */
 #org-drop-zone {
   border: 1px dashed var(--border);
-  padding: 24px;
+  padding: 32px 24px;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
@@ -1189,10 +1189,10 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg);
   color: var(--text);
   font-family: var(--mono);
   font-size: 10px;
-  padding: 8px;
+  padding: 10px;
   resize: vertical;
   outline: none;
-  min-height: 90px;
+  min-height: 130px;
   margin-bottom: 4px;
 }
 #org-paste-area:focus { border-color: var(--cyan-dim); }

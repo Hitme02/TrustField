@@ -92,18 +92,29 @@ const Graph3D = (() => {
   }
 
   // ── Load graph ─────────────────────────────────────────────────────────
-  function loadGraph(data) {
+  // opts.noWave   — skip the pop-in wave; nodes appear instantly (used by demo steps 1-5)
+  // opts.noCamera — keep current camera position (used by demo steps 1-5)
+  function loadGraph(data, opts = {}) {
     _graphData = data;
     _clearGraph();
     _scale = _computeScale(data.nodes || []);
     _buildGraph(data);
-    _startWave(data);
 
-    // Reset camera to see the whole graph
-    _orbit.targetRadius = Math.max(280, _scale * 22);
-    _orbit.radius       = _orbit.targetRadius * 1.2;
-    _orbit.panX = 0; _orbit.targetPanX = 0;
-    _orbit.panY = 0; _orbit.targetPanY = 0;
+    if (opts.noWave) {
+      // Reveal all nodes instantly — no pop-in animation
+      _waveActive = false;
+      Object.values(_nodeMeshes).forEach(m => m.scale.setScalar(m.userData.baseScale));
+    } else {
+      _startWave(data);
+    }
+
+    if (!opts.noCamera) {
+      // Reset camera to frame the whole graph
+      _orbit.targetRadius = Math.max(280, _scale * 22);
+      _orbit.radius       = _orbit.targetRadius * 1.2;
+      _orbit.panX = 0; _orbit.targetPanX = 0;
+      _orbit.panY = 0; _orbit.targetPanY = 0;
+    }
   }
 
   function _clearGraph() {

@@ -43,6 +43,8 @@ const DemoController = (() => {
       const node = _attackNode || '?';
       return `"${node}" has been compromised.\n` +
              `TrustField is tracing every trust delegation the attacker can exploit.\n\n` +
+             `The blue pulses are live API requests between services — even mid-breach,\n` +
+             `all these connections are active and must be accounted for.\n\n` +
              `Analysis running in background — click NEXT to proceed once ready.`;
     }
     if (!_data) return 'Analysis running… please wait.';
@@ -74,7 +76,8 @@ const DemoController = (() => {
       // Step 1: BREACH
       `A ${seedType} node — "${seedId}" — has been compromised.\n` +
       `The attacker has initial foothold. TrustField is now tracing every trust delegation they can exploit.\n\n` +
-      `Watch as the breach propagates through the trust graph.`,
+      `The blue pulses are live API calls still flowing across the graph — every one of these\n` +
+      `active connections is a potential lateral movement path that must be cut off.`,
       // Step 2: PATHS
       `${pathSteps} successful trust hops traced across ${maxDepth + 1} depth levels.\n` +
       `Each lit edge is an exploitable delegation — assume-role, deploy-to, secret-read.\n` +
@@ -109,6 +112,37 @@ const DemoController = (() => {
 
   // ── Graph state helpers ──────────────────────────────────────────────────
 
+  /**
+   * Edges that should be visually blocked in steps 4-5.
+   *
+   * We deliberately do NOT use _data.metadata.blocked_transitions here.
+   * The ContainmentEngine's blocked set includes "top-20 predicted-risk edges"
+   * which are structurally important hub edges that have NOTHING to do with the
+   * actual attack path — hiding them makes the graph look completely disconnected
+   * even when the attack could not propagate.
+   *
+   * Instead we use only the *verified traversal* edges (the edges the attacker
+   * actually walked).  For resource-sink attacks (0 successful hops) we fall
+   * back to the inbound edges of the seed node — semantically: TrustField is
+   * revoking all access TO the compromised resource.
+   */
+  function _visualBlockEdges() {
+    const meta    = _data?.metadata || {};
+    const seeds   = new Set(meta.seed_nodes || []);
+
+    const traversed = (meta.traversal_timeline || [])
+      .filter(s => s.succeeded)
+      .map(s => [s.from_node, s.to_node]);
+
+    if (traversed.length > 0) return traversed;
+
+    // Resource-sink / isolated node: block inbound edges to the seed so
+    // the animation still shows TrustField doing something meaningful.
+    return (_data?.edges || [])
+      .filter(e => seeds.has(e.target))
+      .map(e => [e.source, e.target]);
+  }
+
   /** Return a deep copy of _data with all nodes set to 'safe' and metadata cleared. */
   function _safeSnapshot() {
     const snap = JSON.parse(JSON.stringify(_data));
@@ -120,10 +154,27 @@ const DemoController = (() => {
     return snap;
   }
 
-  // Step 0 — all nodes safe
+  // Step 0 — all nodes safe (clean infrastructure view)
   function _applyInfraStep() {
-    if (!_data) return;
-    Graph3D.loadGraph(_safeSnapshot());
+    // Use pipeline snapshot if available, otherwise clean whatever is currently loaded.
+    // This ensures any node already marked compromised (from attack_started event) resets.
+    const snap = _data
+      ? _safeSnapshot()
+      : (() => {
+          const cur = Graph3D.getGraphData();
+          if (!cur) return null;
+          const s = JSON.parse(JSON.stringify(cur));
+          s.nodes.forEach(n => { n.state = 'safe'; n.risk = 0; n.exploitability = 0; });
+          s.metadata = Object.assign({}, s.metadata || {}, {
+            traversal_timeline: [], guard_events: [], blocked_transitions: [],
+            seed_nodes: [], pbr_nodes: [], vbr_nodes: [], contained_nodes: [],
+          });
+          return s;
+        })();
+    if (!snap) return;
+    // noWave: nodes already visible from the initial org graph load — no pop-in needed.
+    // noCamera: keep the reviewer's current view angle throughout the demo.
+    Graph3D.loadGraph(snap, { noWave: true, noCamera: true });
   }
 
   // Step 1 — seed nodes turn red + pulse (works even before pipeline finishes)
@@ -134,8 +185,8 @@ const DemoController = (() => {
       : (_attackNode ? [_attackNode] : []);
     if (!seeds.length) return;
 
-    if (_data) Graph3D.loadGraph(_safeSnapshot());
-    // If pipeline isn't done yet, just mark the known attacked node on the current graph
+    // Reset to clean infrastructure first (removes any leftover analysis colours)
+    if (_data) Graph3D.loadGraph(_safeSnapshot(), { noWave: true, noCamera: true });
     setTimeout(() => {
       if (_cancel !== tok) return;
       seeds.forEach(id => {
@@ -148,7 +199,7 @@ const DemoController = (() => {
   // Step 2 — animate traversal wave depth-by-depth
   function _applyPathsStep(tok) {
     if (!_data) return;
-    Graph3D.loadGraph(_safeSnapshot());
+    Graph3D.loadGraph(_safeSnapshot(), { noWave: true, noCamera: true });
     const seeds    = _data.metadata?.seed_nodes || [];
     const timeline = _data.metadata?.traversal_timeline || [];
 
@@ -197,7 +248,8 @@ const DemoController = (() => {
     snap.metadata = Object.assign({}, snap.metadata, {
       guard_events: [], blocked_transitions: [], contained_nodes: [],
     });
-    Graph3D.loadGraph(snap);
+    // traversal_timeline is kept — _buildGraph will colour those edges orange
+    Graph3D.loadGraph(snap, { noWave: true, noCamera: true });
   }
 
   // Step 4 — animate guard deployment edge-by-edge, then contained nodes turn green
@@ -205,17 +257,23 @@ const DemoController = (() => {
     if (!_data) return;
     _applyAnalysisStep();  // start from full-risk state
 
-    // Push guards to mock cloud so manual pings start getting blocked immediately
-    const blocks  = _data.metadata?.blocked_transitions || [];
-    if (blocks.length) {
+    // Push the real ContainmentEngine output to mock cloud (for system-console
+    // blocked-ping display) but DO NOT use it for graph visuals — it contains
+    // prediction-based edges unrelated to the actual attack path.
+    const realBlocked = _data.metadata?.blocked_transitions || [];
+    if (realBlocked.length) {
       fetch('/api/mock/guards', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ blocked_transitions: blocks }),
+        body:    JSON.stringify({ blocked_transitions: realBlocked }),
       }).catch(() => {});
     }
+
+    // Visually animate only the edges that are on the verified attack path
+    // (or inbound edges to the seed for resource-sink scenarios).
+    const blocks    = _visualBlockEdges();
     const contained = _data.metadata?.contained_nodes || [];
-    const delay   = Math.max(120, Math.min(250, 1400 / Math.max(1, blocks.length)));
+    const delay     = Math.max(120, Math.min(350, 1800 / Math.max(1, blocks.length)));
 
     // Block edges one by one
     blocks.forEach((edge, i) => {
@@ -251,39 +309,48 @@ const DemoController = (() => {
     });
   }
 
-  // Step 5 — load full final state, then dim all attack-path edges
+  // Step 5 — final secured state
   function _applySecuredStep() {
     if (!_data) return;
-    Graph3D.loadGraph(_data);
 
-    const meta  = _data.metadata || {};
-    const nodes = _data.nodes    || [];
+    // Build the visual blocked set from traversal data only.
+    // We MUST NOT pass _data.blocked_transitions to loadGraph directly because
+    // the ContainmentEngine's predicted-risk list includes unrelated hub edges
+    // that would make the whole graph look disconnected even for a zero-hop attack.
+    const visualBlocked    = _visualBlockEdges();
+    const visualBlockedSet = new Set(visualBlocked.map(([f, t]) => f + ':' + t));
 
-    // Build set of compromised / critical-miss node IDs
+    // Build a display snapshot that only marks verified-path edges as blocked
+    const snap = JSON.parse(JSON.stringify(_data));
+    snap.metadata = Object.assign({}, snap.metadata, {
+      blocked_transitions: visualBlocked,
+    });
+    Graph3D.loadGraph(snap, { noWave: true, noCamera: true });
+
+    // Dark-red "attack zone" tinting — only meaningful when attack actually propagated
+    const hasPath = (snap.metadata.traversal_timeline || []).some(s => s.succeeded);
+    if (!hasPath) return;
+
     const hotNodes = new Set(
-      nodes.filter(n => n.state === 'compromised' || n.state === 'critical_miss').map(n => n.id)
+      (snap.nodes || [])
+        .filter(n => n.state === 'compromised' || n.state === 'critical_miss')
+        .map(n => n.id)
     );
 
-    const blockedSet = new Set(
-      (meta.blocked_transitions || []).map(e => Array.isArray(e) ? e[0]+':'+e[1] : e)
-    );
-
-    // Dim all edges touching a hot node — guard or not
-    (_data.edges || []).forEach(e => {
+    // Tint edges touching hot nodes
+    (snap.edges || []).forEach(e => {
       if (hotNodes.has(e.source) || hotNodes.has(e.target)) {
         const key = e.source + ':' + e.target;
-        if (blockedSet.has(key)) {
-          // Explicitly blocked by guard — nearly invisible dark red
+        if (visualBlockedSet.has(key)) {
           Graph3D.setEdgeColor(e.source, e.target, 0x3b1010, 0.60);
         } else {
-          // Reachable but not explicitly blocked — dim orange-red
           Graph3D.setEdgeColor(e.source, e.target, 0x2a1a0a, 0.40);
         }
       }
     });
 
-    // Also dim traversal edges not involving hot nodes (severed by upstream containment)
-    (meta.traversal_timeline || []).filter(s => s.succeeded).forEach(s => {
+    // Dim any traversal edge not involving a hot node (severed by upstream containment)
+    (snap.metadata.traversal_timeline || []).filter(s => s.succeeded).forEach(s => {
       if (!hotNodes.has(s.from_node) && !hotNodes.has(s.to_node)) {
         Graph3D.setEdgeColor(s.from_node, s.to_node, 0x1a1a2e, 0.20);
       }
@@ -494,5 +561,10 @@ const DemoController = (() => {
     el.textContent   = msg ? `Error: ${msg}` : '';
   }
 
-  return { init, startDemo, stopDemo, setTopology };
+  /** True while the demo overlay is active (steps 0-5). Used by app.js to
+   *  suppress mock-cloud ping pulses and guards_deployed edge-hiding so they
+   *  don't interfere with the demo's own animated graph transitions. */
+  function isActive() { return _step >= 0; }
+
+  return { init, startDemo, stopDemo, setTopology, isActive };
 })();

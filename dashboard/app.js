@@ -74,12 +74,13 @@ const App = (() => {
       _loadTopology('org');
     });
 
-    // Only pulse the graph when services are actually running
+    // Pulse the graph for live traffic — including during demo steps so blocking is visible.
+    // pulseEdge is transient (restores original colour) and skips invisible/blocked edges.
     _mockFeed.addEventListener('ping', e => {
       if (!_mockActive) return;
       const d = JSON.parse(e.data);
       if (d.status === 'blocked') {
-        // Blocked by guard — edge goes silent (no pulse = containment holding)
+        // Edge is already invisible in the graph — no pulse needed
         return;
       } else if (d.attack) {
         Graph3D.pulseEdge(d.from, d.to, 0xff9500, 500);
@@ -102,6 +103,8 @@ const App = (() => {
     });
 
     _mockFeed.addEventListener('guards_deployed', e => {
+      // Demo controller animates containment step-by-step — let it own this event
+      if (DemoController.isActive()) return;
       const d = JSON.parse(e.data);
       (d.blocked || []).forEach(([from, to]) => {
         Graph3D.setEdgeColor(from, to, 0x1e3b2e, 0);
