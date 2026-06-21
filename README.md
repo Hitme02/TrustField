@@ -6,7 +6,7 @@
 
 ##  Video Demo (Screen Recording)
 
-<video src="https://github.com/user-attachments/assets/83acc748-ef65-4142-9780-4f1423ea6ca0" width="100%"></video>
+[<video src="https://github.com/user-attachments/assets/83acc748-ef65-4142-9780-4f1423ea6ca0" width="100%"></video>](https://github.com/Hitme02/TrustField/issues/1#issue-4711167246)
 
 ## What is TrustField?
 
