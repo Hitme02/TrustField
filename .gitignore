@@ -85,3 +85,39 @@ secrets.json
 # ── Logs ──────────────────────────────────────────────────────────────
 *.log
 logs/
+
+# ── Paper / LaTeX artefacts ───────────────────────────────────────────
+*.aux
+*.pdf
+*.out
+*.toc
+*.lof
+*.lot
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+missfont.log
+IEEE-conference-template-062824/
+
+
+state/org_graph\ 2.json
+EL_Report_TrustField.docx
+EL_Report_TrustField.pdf
+EL\ Report\ Format.docx
+5.\ Format\ for\ EL\ poster\ -\ VI\ Semester.pptx
+fill_el_report.py
+TrustField_Explained.md
+trustfield_csitss2026.tex
+docker-compose.localstack.yml
+Project-Report-Template-3.9/
+Project-Report-Template-3.9.zip
+demos/demo_localstack.py
+trustfield/cloud/
+trustfield_results.aux
+TrustField_Explained.md
+LICENSE

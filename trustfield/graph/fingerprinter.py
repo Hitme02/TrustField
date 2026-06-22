@@ -253,9 +253,13 @@ class TopologyFingerprinter:
         apl = fingerprint.avg_path_length
         d = fingerprint.density
 
-        if apl > 4.0 and cc < 0.2:
+        # CHAIN: long paths AND zero triangles (pure linear DAG has cc exactly 0.0;
+        # mixed graphs always carry triangles from the dense-cluster sub-component,
+        # making this check N-invariant regardless of sub-topology dilution).
+        if apl > 4.0 and cc < 1e-9:
             return TopologyType.CHAIN
-        if cv > 0.001 and cc < 0.3:
+        # HUB: centrality variance scaled by N (raw cv shrinks as 1/N on stars).
+        if cv * fingerprint.num_nodes > 0.05 and cc < 0.3:
             return TopologyType.HUB
         if cc > 0.4 and d > 0.15:
             return TopologyType.DENSE_CLUSTER

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import pathlib
 import queue
 import threading
@@ -1158,9 +1159,28 @@ _CT_EVENTS = [
 
 @app.route("/api/aws/connect", methods=["POST"])
 def api_aws_connect():
-    """Demo-mode AWS connection — always succeeds."""
+    """Connect to AWS or LocalStack.  Uses real STS when AWS_ENDPOINT_URL is set."""
     body   = request.get_json(silent=True) or {}
     region = str(body.get("region", "us-east-1")).strip() or "us-east-1"
+
+    endpoint = os.getenv("AWS_ENDPOINT_URL")
+    if endpoint:
+        try:
+            from trustfield.cloud.aws_client import get_sts_client
+            sts = get_sts_client()
+            identity = sts.get_caller_identity()
+            return jsonify({
+                "ok":            True,
+                "mode":          "localstack",
+                "account_id":    identity["Account"],
+                "account_alias": "localstack",
+                "region":        region,
+                "identity":      identity["Arn"],
+                "endpoint":      endpoint,
+            })
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc), "mode": "localstack"}), 502
+
     return jsonify({
         "ok":             True,
         "mode":           "demo",
@@ -1243,7 +1263,7 @@ def api_aws_policies():
 
 @app.route("/api/aws/apply", methods=["POST"])
 def api_aws_apply():
-    """Demo-mode: return policies that would be applied (no real boto3 call)."""
+    """Apply guard policies.  Uses real put_role_policy when AWS_ENDPOINT_URL is set."""
     js_path = OUT_DIR / "org" / "graph_data.js"
     if not js_path.exists():
         return jsonify({"ok": True, "applied": 0, "mode": "demo", "policies": []})
@@ -1254,11 +1274,16 @@ def api_aws_apply():
         return jsonify({"ok": True, "applied": 0, "mode": "demo", "policies": []})
 
     blocked = data.get("metadata", {}).get("blocked_transitions", [])
+    account_id = _DEMO_ACCOUNT_ID
+
+    # Build the policy list regardless of mode
     policies = []
+    edges: list[tuple[str, str]] = []
     for pair in blocked:
         if not isinstance(pair, (list, tuple)) or len(pair) < 2:
             continue
         src, tgt = str(pair[0]), str(pair[1])
+        edges.append((src, tgt))
         policy_name = f"TrustField-Guard-{src.replace('/', '-')}-to-{tgt.replace('/', '-')}"
         doc = {
             "Version": "2012-10-17",
@@ -1266,7 +1291,7 @@ def api_aws_apply():
                 "Sid":      "TrustFieldGuard",
                 "Effect":   "Deny",
                 "Action":   "sts:AssumeRole",
-                "Resource": f"arn:aws:iam::{_DEMO_ACCOUNT_ID}:role/{tgt}",
+                "Resource": f"arn:aws:iam::{account_id}:role/{tgt}",
             }],
         }
         policies.append({
@@ -1281,6 +1306,29 @@ def api_aws_apply():
                 f"--policy-document '{json.dumps(doc)}'"
             ),
         })
+
+    endpoint = os.getenv("AWS_ENDPOINT_URL")
+    if endpoint and edges:
+        try:
+            from trustfield.cloud.policy_deployer import PolicyDeployer
+            deployer = PolicyDeployer(account_id=account_id)
+            results = deployer.deploy_batch(edges)
+            ok_count = sum(1 for r in results if r.ok)
+            for i, r in enumerate(results):
+                if i < len(policies):
+                    policies[i]["ok"] = r.ok
+                    policies[i]["latency_ms"] = r.latency_ms
+                    if r.error:
+                        policies[i]["error"] = r.error
+            return jsonify({
+                "ok":      True,
+                "applied": ok_count,
+                "mode":    "localstack",
+                "endpoint": endpoint,
+                "policies": policies,
+            })
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc), "mode": "localstack"}), 502
 
     return jsonify({"ok": True, "applied": len(policies), "mode": "demo", "policies": policies})
 

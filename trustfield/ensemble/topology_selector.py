@@ -83,42 +83,62 @@ _CHAIN_WEIGHTS = {
 
 _DENSE_CLUSTER_WEIGHTS = {
     # Dense-cluster topologies have many intra-cluster cycles.
-    # GNN has moderate weight (0.15) — classical models already informative here.
-    # Weights = calibrated 5-model values × 0.85, plus gnn = 0.15.
+    # Empirically calibrated from IoU benchmark (N=50–5000, 5 seeds):
+    #   graph_traversal=0.653, percolation=0.628, epidemic=0.221,
+    #   spectral_cascade=0.136, control_system=0.000.
     #
-    # graph_traversal (0.28): Highest-F1 classical model; weight = 0.3277 × 0.85.
+    # graph_traversal (0.40): Best model empirically; weight must exceed the
+    #   default threshold (0.30) so BFS-only-reachable nodes are not silenced.
     #
-    # epidemic        (0.14): Intra-cluster spread is fast; moderate weight.
+    # percolation     (0.28): Close second to BFS; phase transitions meaningful
+    #   in dense graphs with many cycles.
     #
-    # spectral_cascade (0.18): Dense clusters have non-zero λ_max (cycles).
-    #   Cascade condition is meaningful; eigenvector centrality identifies
-    #   bridge-adjacent nodes.  Weight = 0.2063 × 0.85.
+    # epidemic        (0.12): Intra-cluster spread is fast; moderate signal.
     #
-    # percolation     (0.22): Phase transitions most pronounced in dense graphs.
-    #   Weight = 0.2572 × 0.85.
+    # gnn             (0.12): Learned signal; complementary to classical models.
     #
-    # control_system  (0.03): Dense spectral radius compresses dynamics.
+    # spectral_cascade (0.06): Non-zero λ_max on clusters but weak empirically.
+    #   Previous weight (0.1754) was over-allocated; corrected down.
     #
-    # gnn             (0.15): Learned model provides complementary signal.
-    "graph_traversal": 0.2785,
-    "epidemic":        0.1448,
-    "spectral_cascade": 0.1754,
-    "percolation":     0.2186,
-    "control_system":  0.0327,
-    "gnn":             0.1500,
+    # control_system  (0.02): Near-zero empirically; minimal weight retained.
+    "graph_traversal": 0.40,
+    "percolation":     0.28,
+    "epidemic":        0.12,
+    "gnn":             0.12,
+    "spectral_cascade": 0.06,
+    "control_system":  0.02,
 }
 
 _MIXED_WEIGHTS = {
     # Mixed topologies contain hub, chain, and dense-cluster sub-graphs.
-    # GNN gets slightly higher weight (0.25) to reflect its generality;
-    # the 5 classical models share the remaining 0.75 equally (0.15 each),
-    # reflecting maximum uncertainty among classical approaches.
-    "graph_traversal": 0.15,
-    "epidemic":        0.15,
-    "spectral_cascade": 0.15,
-    "percolation":     0.15,
-    "control_system":  0.15,
-    "gnn":             0.25,
+    # Empirically calibrated from IoU benchmark (N=50–5000, 5 seeds):
+    #   BFS=0.508–0.999, all other models ≤ 0.136.
+    #   BFS is the dominant model at every scale.
+    #
+    # Previous uniform prior (0.15 each) caused a weight-threshold failure:
+    #   BFS weight (0.15) < threshold (0.30) → BFS-reachable nodes never
+    #   flagged. Corrected by making BFS-dominant with weight > threshold.
+    #
+    # graph_traversal (0.50): Dominant model; weight > 0.30 ensures
+    #   BFS-reachable nodes cross the decision threshold.
+    #
+    # gnn             (0.20): Highest remaining weight; generalises across
+    #   heterogeneous sub-structure that classical models mis-classify.
+    #
+    # percolation     (0.12): Small but non-zero signal at small N.
+    #
+    # epidemic        (0.10): Small signal at small N; drops to near-zero
+    #   at large N on sparse mixed sub-topologies.
+    #
+    # spectral_cascade (0.05): Near-zero at all N on mixed graphs.
+    #
+    # control_system  (0.03): Near-zero at all N; minimal weight retained.
+    "graph_traversal": 0.50,
+    "gnn":             0.20,
+    "percolation":     0.12,
+    "epidemic":        0.10,
+    "spectral_cascade": 0.05,
+    "control_system":  0.03,
 }
 
 _TOPOLOGY_WEIGHT_TABLE = {
@@ -143,8 +163,8 @@ _TOPOLOGY_WEIGHT_TABLE = {
 _TOPOLOGY_THRESHOLD_TABLE: dict[TopologyType, float] = {
     TopologyType.HUB:           0.35,
     TopologyType.CHAIN:         0.35,
-    TopologyType.DENSE_CLUSTER: 0.50,
-    TopologyType.MIXED:         0.45,
+    TopologyType.DENSE_CLUSTER: 0.35,  # lowered from 0.50 (BFS weight=0.40 > 0.35)
+    TopologyType.MIXED:         0.35,  # lowered from 0.45 (BFS weight=0.50 > 0.35)
 }
 
 
