@@ -6,6 +6,7 @@ pyyaml>=6.0
 torch>=2.0
 python-hcl2>=4.3
 flask>=3.0
+pyserial>=3.5
 boto3>=1.26.0
 botocore>=1.29.0
 # dataclasses is part of the Python 3.7+ standard library (no install needed)

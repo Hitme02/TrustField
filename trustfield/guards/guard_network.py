@@ -22,6 +22,7 @@ from trustfield.verification.blast_radius import BlastRadiusAnalysis
 from trustfield.verification.delegation_token import DelegationToken, TokenGenerator
 
 from .guard_module import CyberPhysicalGuard, GuardEvent, StrictnessLevel
+from .hardware_bridge import HardwareBridge, HardwareGuard
 
 
 @dataclass
@@ -82,18 +83,28 @@ class GuardNetwork:
         self,
         high_risk_edges: List[tuple],
         guards_per_edge: int = 3,
+        hardware_bridge: Optional[HardwareBridge] = None,
     ) -> Dict[tuple, List[CyberPhysicalGuard]]:
         """Deploy ``guards_per_edge`` guard instances on each high-risk edge.
 
         Each guard gets its own ``TokenGenerator`` sharing the session secret
         key but with a fresh nonce store, replicating independent TPM state.
 
+        When ``hardware_bridge`` is provided, the first guard in each triad
+        is a ``HardwareGuard`` that routes validation through the STM32.
+        The remaining guards are software ``CyberPhysicalGuard`` instances.
+        The 2-of-3 consensus mechanism is unchanged — the hardware guard
+        participates as an equal voter.
+
         Guard IDs follow the pattern
-        ``"guard_{source}_{target}_{i}"`` (0-indexed).
+        ``"guard_{source}_{target}_{i}"`` (0-indexed).  The hardware guard
+        (index 0) is additionally prefixed with ``hw_``.
 
         Args:
             high_risk_edges: List of ``(source, target)`` tuples to protect.
             guards_per_edge: Number of redundant guard instances per edge.
+            hardware_bridge: Optional ``HardwareBridge`` for STM32 integration.
+                When provided, one guard per edge is hardware-backed.
 
         Returns:
             Mapping of edge tuple to list of deployed guard instances.
@@ -102,10 +113,16 @@ class GuardNetwork:
             src, tgt = edge
             guards: List[CyberPhysicalGuard] = []
             for i in range(guards_per_edge):
-                guard_id = f"guard_{src}_{tgt}_{i}"
                 # Same key, independent nonce store — mirrors physical TPM cluster
                 guard_gen = TokenGenerator(secret_key=self._token_generator.key)
-                guard = CyberPhysicalGuard(guard_id, edge, guard_gen)
+                if i == 0 and hardware_bridge is not None:
+                    guard_id = f"hw_guard_{src}_{tgt}_{i}"
+                    guard = HardwareGuard(
+                        guard_id, edge, guard_gen, hardware_bridge
+                    )
+                else:
+                    guard_id = f"guard_{src}_{tgt}_{i}"
+                    guard = CyberPhysicalGuard(guard_id, edge, guard_gen)
                 guards.append(guard)
             self._deployed_guards[edge] = guards
 

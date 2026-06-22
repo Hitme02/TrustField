@@ -28,6 +28,7 @@ from trustfield.verification.verification_report import VerificationReport
 from .feedback_loop import FeedbackAction, HardwareSoftwareFeedback
 from .guard_module import GuardEvent, StrictnessLevel
 from .guard_network import GuardNetwork
+from .hardware_bridge import HardwareBridge
 from .sensor import SensorReading
 
 
@@ -82,9 +83,11 @@ class ContainmentEngine:
         self,
         orchestrator: TrustFieldOrchestrator,
         token_generator: Optional[TokenGenerator] = None,
+        hardware_bridge: Optional[HardwareBridge] = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._token_gen = token_generator or TokenGenerator()
+        self._hardware_bridge = hardware_bridge
 
     # ------------------------------------------------------------------
     # Primary execution
@@ -152,8 +155,12 @@ class ContainmentEngine:
                 for src, tgt in graph._graph.in_edges(seed):
                     all_guard_edges.append((src, tgt))
 
-        # --- Step 2: Deploy guards ---
-        guard_net.deploy_guards(all_guard_edges, guards_per_edge=3)
+        # --- Step 2: Deploy guards (with optional STM32 hardware) ---
+        guard_net.deploy_guards(
+            all_guard_edges,
+            guards_per_edge=3,
+            hardware_bridge=self._hardware_bridge,
+        )
 
         # --- Step 3: Feedback loop (modifies working_graph weights) ---
         feedback = HardwareSoftwareFeedback(guard_net, self._orchestrator)
