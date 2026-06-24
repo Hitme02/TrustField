@@ -30,6 +30,7 @@ from trustfield.ensemble.ensemble_result import AnalysisResult
 from trustfield.graph.iam_simulator import IAMSimulator
 from trustfield.graph.trust_graph import TrustGraph
 from trustfield.guards.containment_engine import ContainmentEngine, ContainmentResult
+from trustfield.guards.hardware_bridge import HardwareBridge
 from trustfield.verification.blast_radius import BlastRadiusCalculator, BlastRadiusAnalysis
 from trustfield.verification.delegation_token import TokenGenerator
 from trustfield.verification.iam_traversal import IAMTraversal, TraversalResult
@@ -99,12 +100,14 @@ class TrustFieldPipeline:
         traversal_max_depth: int = 6,
         n_feedback_cycles: int = 5,
         random_seed: int = 42,
+        hardware_bridge: Optional[HardwareBridge] = None,
     ) -> None:
         self._orchestrator = TrustFieldOrchestrator(db_path=db_path)
         self._output_dir = Path(output_dir)
         self._traversal_max_depth = traversal_max_depth
         self._n_feedback_cycles = n_feedback_cycles
         self._random_seed = random_seed
+        self._hardware_bridge = hardware_bridge
 
     # ------------------------------------------------------------------
     # Primary single-graph run
@@ -152,13 +155,22 @@ class TrustFieldPipeline:
             blast_radius_analysis=bra,
         )
 
-        # --- M5: Containment ---
-        engine = ContainmentEngine(self._orchestrator, token_generator=TokenGenerator())
+        # --- M5: Containment (with optional STM32 hardware guard) ---
+        engine = ContainmentEngine(
+            self._orchestrator,
+            token_generator=TokenGenerator(),
+            hardware_bridge=self._hardware_bridge,
+        )
         containment = engine.execute(
             graph, seed_nodes, report, n_feedback_cycles=self._n_feedback_cycles, use_gnn=use_gnn
         )
 
         # --- M6: Export ---
+        hw_events = []
+        if self._hardware_bridge is not None:
+            hw_events = self._hardware_bridge.get_event_log()
+            self._hardware_bridge.clear_event_log()
+
         output_files: Dict[str, str] = {}
         if export:
             topo_dir = self._output_dir / topology_label
@@ -171,6 +183,7 @@ class TrustFieldPipeline:
                 topology_label=topology_label,
                 traversal_result=traversal,
                 containment_result=containment,
+                hardware_events=hw_events,
             )
 
         metrics = self._build_metrics(pred, bra, containment)

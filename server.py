@@ -303,6 +303,66 @@ def _build_sim_preview(state: dict) -> dict:
 # Simulated infrastructure — pipeline SSE stream
 # ---------------------------------------------------------------------------
 
+def _run_hardware_validation(hw, graph, pipeline_result, seed_nodes):
+    """Run hardware validation as a subprocess to isolate serial I/O from Flask.
+
+    The standalone test works perfectly, but serial communication inside
+    Flask's SSE generator fails.  Running as a subprocess gives the same
+    clean environment as the standalone test.
+    """
+    import subprocess
+    import time as _time
+    from trustfield.guards.hardware_bridge import HardwareValidationResult
+
+    port = hw._port
+    hw.close()
+    _time.sleep(1)
+
+    # Collect edges from the verified attack path
+    traversal = pipeline_result.traversal_result
+    seen = set()
+    edge_args = []
+    for step in traversal.traversal_steps:
+        e = (step.from_node, step.to_node)
+        if step.succeeded and e not in seen and graph._graph.has_edge(*e):
+            seen.add(e)
+            edge_args.append(f"{step.from_node},{step.to_node}")
+    edge_args = edge_args[:5]
+
+    # Run the validation script as a subprocess
+    script = str(ROOT / "scripts" / "hw_validate.py")
+    cmd = ["python", script, port] + edge_args
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60,
+            cwd=str(ROOT), env={**os.environ, "PYTHONPATH": str(ROOT)},
+        )
+        output = result.stdout.strip()
+        print(f"  [HW] subprocess output:\n{output}")
+
+        # Parse JSON results from the script
+        for line in output.splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                ev = json.loads(line)
+                hw.event_log.append(HardwareValidationResult(
+                    success=ev.get("decision") == "ALLOWED",
+                    raw_response=ev.get("raw", ""),
+                    decision=ev.get("decision", "BLOCKED"),
+                    reason=ev.get("reason", ""),
+                    round_trip_ms=ev.get("ms", 0),
+                ))
+            except json.JSONDecodeError:
+                pass
+    except Exception as exc:
+        print(f"  [HW] subprocess error: {exc}")
+
+    _time.sleep(1)
+    hw.connect()
+
+
 def _run_sim_pipeline_stream(seed_nodes: list[str]) -> Iterator[str]:
     """Run the full pipeline on the current sim graph and yield SSE events."""
 
@@ -362,7 +422,33 @@ def _run_sim_pipeline_stream(seed_nodes: list[str]) -> Iterator[str]:
             "step": "containment",
             "msg": f"M5 — containment={m['containment_success_rate']:.1%} strictness={m['final_strictness']}",
         })
+
+        # --- Hardware validation pass (after software pipeline) ---
+        hw = _get_hardware_bridge()
+        if hw:
+            yield _evt("progress", {"step": "hardware", "msg": "M5-HW — Validating on STM32…"})
+            _run_hardware_validation(hw, graph, result, active_seeds)
+            yield _evt("progress", {
+                "step": "hardware",
+                "msg": f"M5-HW — {len(hw.event_log)} tokens validated on STM32",
+            })
+
         yield _evt("progress", {"step": "export", "msg": "M6 — graph data written to out/sim/"})
+
+        hw_events = hw.get_event_log() if hw else []
+        if hw_events:
+            from trustfield.visualization.graph_exporter import GraphExporter
+            topo_dir = OUT_DIR / "sim"
+            exporter = GraphExporter(output_dir=str(topo_dir))
+            exporter.export(
+                graph,
+                verification_report=result.verification_report,
+                ensemble_risk=result.analysis_result.ensemble_prediction.ensemble_risk,
+                topology_label="sim",
+                traversal_result=result.traversal_result,
+                containment_result=result.containment_result,
+                hardware_events=hw_events,
+            )
 
         js_path = OUT_DIR / "sim" / "graph_data.js"
         data = _parse_graph_js(js_path)
@@ -402,7 +488,11 @@ def api_topologies():
 def _parse_graph_js(path: pathlib.Path) -> dict:
     content = path.read_text(encoding="utf-8")
     # Strip JS wrapper: "const GRAPH_DATA = {...};"
-    json_str = content.replace("const GRAPH_DATA = ", "", 1).rstrip(";\n")
+    json_str = content.replace("const GRAPH_DATA = ", "", 1)
+    # Remove trailing semicolon and whitespace
+    json_str = json_str.rstrip()
+    if json_str.endswith(";"):
+        json_str = json_str[:-1]
     return json.loads(json_str)
 
 
@@ -900,7 +990,32 @@ def _run_org_pipeline_stream(seed_nodes: list, use_gnn: bool = True) -> Iterator
             "step": "containment",
             "msg": f"M5 — containment={m['containment_success_rate']:.1%} strictness={m['final_strictness']}",
         })
+
+        hw = _get_hardware_bridge()
+        if hw:
+            yield _evt("progress", {"step": "hardware", "msg": "M5-HW — Validating on STM32…"})
+            _run_hardware_validation(hw, graph, result, active_seeds)
+            yield _evt("progress", {
+                "step": "hardware",
+                "msg": f"M5-HW — {len(hw.event_log)} tokens validated on STM32",
+            })
+
         yield _evt("progress", {"step": "export", "msg": "M6 — graph data written to out/org/"})
+
+        hw_events = hw.get_event_log() if hw else []
+        if hw_events:
+            from trustfield.visualization.graph_exporter import GraphExporter
+            topo_dir = OUT_DIR / "org"
+            exporter = GraphExporter(output_dir=str(topo_dir))
+            exporter.export(
+                graph,
+                verification_report=result.verification_report,
+                ensemble_risk=result.analysis_result.ensemble_prediction.ensemble_risk,
+                topology_label="org",
+                traversal_result=result.traversal_result,
+                containment_result=result.containment_result,
+                hardware_events=hw_events,
+            )
 
         js_path = OUT_DIR / "org" / "graph_data.js"
         data = _parse_graph_js(js_path)
@@ -1479,11 +1594,48 @@ def _mock_options(**kwargs):
 # Entry point
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Hardware guard page + API
+# ---------------------------------------------------------------------------
+
+@app.route("/hardware")
+def hardware_page():
+    resp = send_from_directory(str(DASHBOARD), "hardware.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/api/stm32/status")
+def api_stm32_status():
+    bridge = _get_hardware_bridge()
+    if bridge is None:
+        return jsonify({"connected": False, "port": None, "enabled": False})
+    return jsonify({
+        "connected": bridge.connected,
+        "port": bridge._port,
+        "enabled": True,
+        "events_logged": len(bridge.event_log),
+    })
+
+
+# ---------------------------------------------------------------------------
+# STM32 hardware bridge (optional, enabled with --stm32 flag)
+# ---------------------------------------------------------------------------
+
+_hardware_bridge = None  # set by main() when --stm32 is passed
+
+
+def _get_hardware_bridge():
+    """Return the active HardwareBridge, or None if not connected."""
+    return _hardware_bridge
+
+
 if __name__ == "__main__":
     import sys
 
     host = "127.0.0.1"
     port = 5000
+    stm32_port = None
 
     args = sys.argv[1:]
     for i, a in enumerate(args):
@@ -1491,9 +1643,29 @@ if __name__ == "__main__":
             port = int(args[i + 1])
         if a in ("--host",) and i + 1 < len(args):
             host = args[i + 1]
+        if a == "--stm32" and i + 1 < len(args):
+            stm32_port = args[i + 1]
 
     print("=" * 60)
     print("  TrustField Dashboard Server")
     print(f"  http://{host}:{port}")
+
+    if stm32_port:
+        from trustfield.guards.hardware_bridge import HardwareBridge
+        print(f"  STM32 hardware guard: {stm32_port}")
+        _hardware_bridge = HardwareBridge(
+            port=stm32_port,
+            baudrate=115200,
+            secret_key=b"my_secret_key_32bytes_padded!!!!",
+            response_delay=1.0,
+        )
+        if _hardware_bridge.connect():
+            print("  STM32 connected — hardware guard ACTIVE")
+        else:
+            print("  STM32 connection FAILED — running software-only")
+            _hardware_bridge = None
+    else:
+        print("  STM32: not enabled (use --stm32 COM6 to enable)")
+
     print("=" * 60)
     app.run(host=host, port=port, debug=False, threaded=True)

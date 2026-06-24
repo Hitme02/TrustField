@@ -56,6 +56,7 @@ class GraphExporter:
         topology_label: str = "unknown",
         traversal_result: Optional[TraversalResult] = None,
         containment_result=None,
+        hardware_events: Optional[list] = None,
     ) -> Dict[str, str]:
         """Export graph data to all output formats.
 
@@ -86,7 +87,8 @@ class GraphExporter:
         graph_dict = engine.to_dict(graph, positions)
         graph_dict["topology"] = topology_label
         graph_dict["metadata"] = self._build_metadata(
-            graph, blast_radius, traversal_result, containment_result
+            graph, blast_radius, traversal_result, containment_result,
+            hardware_events=hardware_events,
         )
 
         # --- Write JSON ---
@@ -129,6 +131,7 @@ class GraphExporter:
         blast_radius: Optional[BlastRadiusAnalysis],
         traversal_result: Optional[TraversalResult] = None,
         containment_result=None,
+        hardware_events: Optional[list] = None,
     ) -> dict:
         meta: dict = {
             "num_nodes": graph._graph.number_of_nodes(),
@@ -170,6 +173,8 @@ class GraphExporter:
             meta["contained_nodes"] = []
             meta["blocked_transitions"] = []
             meta["guard_events"] = []
+
+        meta["hardware_events"] = hardware_events or []
 
         if traversal_result is not None:
             meta["traversal_timeline"] = [

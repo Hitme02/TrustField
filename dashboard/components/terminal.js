@@ -1,4 +1,4 @@
-/* terminal.js — Guard event log terminal */
+/* terminal.js — Guard event log terminal (software + hardware) */
 
 const Terminal = (() => {
 
@@ -17,8 +17,19 @@ const Terminal = (() => {
     const decClass = ev.decision === 'ALLOWED' ? 'log-allowed' :
                      ev.decision === 'FLAGGED'  ? 'log-sensor'  : 'log-blocked';
     const dec  = `<span class="${decClass}">${ev.decision}</span>`;
+    const isHw = ev.guard_id && ev.guard_id.startsWith('hw_');
+    const tag  = isHw ? '<span class="log-hw">[HW]</span> ' : '';
     const reason = ev.reason ? `<span class="log-ts"> // ${ev.reason}</span>` : '';
-    return `<div class="log-line">${ts} ${gid} ${dec} ${edge}${reason}</div>`;
+    return `<div class="log-line">${ts} ${tag}${gid} ${dec} ${edge}${reason}</div>`;
+  }
+
+  function _renderHwEvent(ev, idx) {
+    const decClass = ev.decision === 'ALLOWED' ? 'log-allowed' : 'log-blocked';
+    const dec  = `<span class="${decClass}">${ev.decision}</span>`;
+    const port = `<span class="log-hw">[${ev.source}:${ev.port}]</span>`;
+    const raw  = `<span class="log-hw-raw">${ev.raw_response}</span>`;
+    const ms   = `<span class="log-ts">${ev.round_trip_ms}ms</span>`;
+    return `<div class="log-line log-hw-line">${port} ${dec} ${ms} ${raw}</div>`;
   }
 
   function render(graphData) {
@@ -26,18 +37,27 @@ const Terminal = (() => {
     const empty = document.getElementById('terminal-empty');
     if (!log) return;
 
-    const events = (graphData.metadata || {}).guard_events || [];
+    const events   = (graphData.metadata || {}).guard_events || [];
+    const hwEvents = (graphData.metadata || {}).hardware_events || [];
 
-    if (events.length === 0) {
+    if (events.length === 0 && hwEvents.length === 0) {
       log.innerHTML = `<div id="terminal-empty">// No guard events — run with ContainmentEngine</div>`;
       return;
     }
 
     if (empty) empty.style.display = 'none';
 
-    // Render all events
-    log.innerHTML = events.map(_renderLine).join('');
-    // Scroll to bottom
+    let html = '';
+
+    if (hwEvents.length > 0) {
+      html += '<div class="log-section-header">STM32 HARDWARE GUARD</div>';
+      html += hwEvents.map(_renderHwEvent).join('');
+      html += '<div class="log-section-header">SOFTWARE GUARDS</div>';
+    }
+
+    html += events.map(_renderLine).join('');
+
+    log.innerHTML = html;
     log.scrollTop = log.scrollHeight;
   }
 

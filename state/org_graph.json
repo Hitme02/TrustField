@@ -291,5 +291,5 @@
       "weight": 0.7
     }
   ],
-  "breach_seed": "lambda.amazonaws.com"
+  "breach_seed": "iam:role:deploy-role"
 }

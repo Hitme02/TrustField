@@ -124,6 +124,9 @@ class HardwareBridge:
     ``HardwareGuard`` instances — each guard calls ``send_token()``
     which serializes access to the single UART line.
 
+    All hardware validation attempts are recorded in ``event_log``
+    so they can be included in the dashboard visualization.
+
     Args:
         port: Serial port (e.g. ``"COM6"`` on Windows, ``"/dev/ttyUSB0"``
             on Linux).
@@ -157,6 +160,7 @@ class HardwareBridge:
         self._response_delay = response_delay
         self._serial = None
         self._connected = False
+        self.event_log: list[HardwareValidationResult] = []
 
     # ------------------------------------------------------------------
     # Connection lifecycle
@@ -175,11 +179,30 @@ class HardwareBridge:
             )
             time.sleep(2)
             self._connected = True
+            self.flush_stm32_frame()
             self.sync_time()
             return True
         except Exception:
             self._connected = False
             return False
+
+    def flush_stm32_frame(self) -> None:
+        """Send dummy bytes to reset the STM32's frame parser.
+
+        If the STM32 was mid-frame from a previous session (DTR doesn't
+        reset all boards), sending 82 null bytes completes whatever
+        partial frame it's waiting for.  The resulting HMAC check will
+        fail, but the STM32 returns to its idle state ready for the
+        next real frame.
+        """
+        if not self._serial:
+            return
+        self._serial.reset_input_buffer()
+        self._serial.write(b"\x00" * self.TOTAL_SIZE)
+        self._serial.flush()
+        time.sleep(1)
+        self._serial.read_all()
+        self._serial.reset_input_buffer()
 
     def sync_time(self) -> Optional[str]:
         """Send the current UNIX timestamp to the STM32.
@@ -198,10 +221,41 @@ class HardwareBridge:
         time.sleep(0.5)
         return self._serial.read_all().decode(errors="ignore")
 
+    def resync(self) -> None:
+        """Re-sync the STM32 clock and flush the serial buffers.
+
+        Call this before a pipeline run to ensure the STM32's frame
+        parser is in a clean state.
+        """
+        if not self._connected or self._serial is None:
+            return
+        self._serial.reset_input_buffer()
+        self._serial.reset_output_buffer()
+        self.sync_time()
+        self._serial.reset_input_buffer()
+
     @property
     def connected(self) -> bool:
         """Whether the bridge has an active serial connection."""
         return self._connected
+
+    def get_event_log(self) -> list:
+        """Return all hardware validation events as serializable dicts."""
+        return [
+            {
+                "source": "STM32",
+                "port": self._port,
+                "decision": ev.decision,
+                "reason": ev.reason,
+                "raw_response": ev.raw_response.replace("\r", "").strip(),
+                "round_trip_ms": round(ev.round_trip_ms, 1),
+            }
+            for ev in self.event_log
+        ]
+
+    def clear_event_log(self) -> None:
+        """Clear all recorded hardware events."""
+        self.event_log.clear()
 
     def close(self) -> None:
         """Close the serial port and mark the bridge as disconnected."""
@@ -304,11 +358,14 @@ class HardwareBridge:
 
         payload = self.build_payload(token, strictness)
 
+        # Flush stale data from previous exchanges
+        self._serial.reset_input_buffer()
+
         start = time.perf_counter()
         for byte in payload:
             self._serial.write(bytes([byte]))
-            if self._byte_delay > 0:
-                time.sleep(self._byte_delay)
+            time.sleep(0.001)
+        self._serial.flush()
 
         if self._response_delay > 0:
             time.sleep(self._response_delay)
@@ -318,13 +375,15 @@ class HardwareBridge:
 
         decision, reason = _parse_stm32_response(raw)
 
-        return HardwareValidationResult(
+        result = HardwareValidationResult(
             success=(decision == "ALLOWED"),
             raw_response=raw,
             decision=decision,
             reason=reason,
             round_trip_ms=elapsed_ms,
         )
+        self.event_log.append(result)
+        return result
 
 
 class HardwareGuard(CyberPhysicalGuard):
