@@ -315,6 +315,7 @@ def _run_hardware_validation(hw, graph, pipeline_result, seed_nodes):
     from trustfield.guards.hardware_bridge import HardwareValidationResult
 
     port = hw._port
+    hw._busy = True
     hw.close()
     _time.sleep(1)
 
@@ -361,6 +362,7 @@ def _run_hardware_validation(hw, graph, pipeline_result, seed_nodes):
 
     _time.sleep(1)
     hw.connect()
+    hw._busy = False
 
 
 def _run_sim_pipeline_stream(seed_nodes: list[str]) -> Iterator[str]:
@@ -1609,11 +1611,12 @@ def hardware_page():
 def api_stm32_status():
     bridge = _get_hardware_bridge()
     if bridge is None:
-        return jsonify({"connected": False, "port": None, "enabled": False})
+        return jsonify({"connected": False, "port": None, "enabled": False, "busy": False})
     return jsonify({
         "connected": bridge.connected,
         "port": bridge._port,
         "enabled": True,
+        "busy": bridge.busy,
         "events_logged": len(bridge.event_log),
     })
 

@@ -291,5 +291,5 @@
       "weight": 0.7
     }
   ],
-  "breach_seed": "iam:role:deploy-role"
+  "breach_seed": "iam:group:CIPipeline"
 }

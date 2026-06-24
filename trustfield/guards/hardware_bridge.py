@@ -160,6 +160,7 @@ class HardwareBridge:
         self._response_delay = response_delay
         self._serial = None
         self._connected = False
+        self._busy = False
         self.event_log: list[HardwareValidationResult] = []
 
     # ------------------------------------------------------------------
@@ -238,6 +239,11 @@ class HardwareBridge:
     def connected(self) -> bool:
         """Whether the bridge has an active serial connection."""
         return self._connected
+
+    @property
+    def busy(self) -> bool:
+        """Whether the bridge is mid-validation (subprocess has the port)."""
+        return self._busy
 
     def get_event_log(self) -> list:
         """Return all hardware validation events as serializable dicts."""
